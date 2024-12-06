@@ -132,3 +132,5 @@ dist
 
 .venv
 downloads
+trades.csv
+.DS_Store

@@ -2,9 +2,9 @@ import { PublicKey, Connection, ParsedTransactionWithMeta, ParsedInstruction, To
 import { TokenAccount,
     SPL_ACCOUNT_LAYOUT,
     LIQUIDITY_STATE_LAYOUT_V4 } from "@raydium-io/raydium-sdk";
-import 'dotenv/config';
 import "@solana/spl-token";
-import mysql from "mysql2/promise";
+import {Connection as mysqlConn, createConnection} from "mysql2/promise";
+require('dotenv').config();
 
 const dbConfig = {
     host: process.env.DB_HOST,
@@ -13,10 +13,10 @@ const dbConfig = {
     database: "trading",
 }
 
-let connection :mysql.Connection;
+let connection :mysqlConn;
 
 async function initDbConnection() {
-    connection = await mysql.createConnection(dbConfig);
+    connection = await createConnection(dbConfig);
 }
 
 
@@ -25,8 +25,7 @@ const SOLANA_DECIMALS = 9;
 const RAYDIUM_CURVE = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"; // Replace with actual Raydium curve address
 const PUMPFUN_CURVE = "PumpFunCurveAddress"; // Replace with actual PumpFun curve address
 const WSOL_ADDRESS = "WSOLAddress"; // Replace with actual Wrapped SOL address
-const conn: Connection = new Connection(process.env.QN_RPC_URL!, "confirmed"); // Initialize Solana connection
-
+const conn: Connection = new Connection(process.env.RPC_URL!, "confirmed"); // Initialize Solana connection
 // Define types for row data
 interface Row {
     token: string;
@@ -99,30 +98,33 @@ async function insertToDb(row: Row) {
 
 // Main function to process a signature
 async function processSignature(signature: { signature: string }, address: string, lp: LP): Promise<void> {
+
+    // add retries
     const tx: ParsedTransactionWithMeta | null = await conn.getParsedTransaction(signature.signature, {
         maxSupportedTransactionVersion: 1,
     });
 
     if (tx) {
         if (tx.meta?.err) {
-            console.log(`Error in transaction: ${signature.signature}`);
+            // console.log(`Error in transaction: ${signature.signature}`);
             return
         }
         // Extract instructions related to burn type for this token address
         let instructionTypes: ParsedInstruction[];
+
         try {
             instructionTypes = tx.transaction.message.instructions
                 .filter((instruction) => isParsedInstruction(instruction) && (instruction.parsed?.info.mint === address) && (instruction.parsed?.type === "burn"))
                 .map((instruction) => (instruction as ParsedInstruction).parsed);
         } catch (error) {
-            console.error(`Error extracting instructions for ${signature.signature}:`, error);
+            // console.error(`Error extracting instructions for ${signature.signature}:`, error);
             return;
         }
         
 
         // Check if the transaction was unsuccessful or involved a burn operation
         if (instructionTypes.length > 0) {
-            console.log(`burn error: ${signature.signature}`);
+            // console.log(`burn error: ${signature.signature}`);
             return;
         }
 
@@ -228,7 +230,7 @@ async function processSignaturesInParallel(signatures: ConfirmedSignatureInfo[],
 
 async function main() {
     try {
-        const TOKEN_ADDRESS = "AtakVE4hj5KgbS58YzmCYrUwRqMNCnwaamUckk2Zpump";
+        const TOKEN_ADDRESS = "Em4rcuhX6STfB7mxb66dUXDmZPYCjDiQFthvzSzpump";
 
         await initDbConnection();
 
@@ -249,34 +251,37 @@ async function main() {
         
         let signatures: ConfirmedSignatureInfo[] = [];
 
+        let signaturesCount = 0;
+
+        const batchSize = 100;
+
+
+        let cnt = 0;
+
 
         // Continue fetching until there are fewer than MAX_SIGNATURES signatures in the batch
         do {
+
             let signatures = lastSignature ? 
                 await conn.getSignaturesForAddress(pool, { limit: 1000, before: lastSignature }, "confirmed") : 
                 await conn.getSignaturesForAddress(pool, { limit: 1000 }, "confirmed");
 
-            // time it
+            signaturesCount = signatures.length;
+
+            cnt += signaturesCount;
             
-            // this should be split into batches processed in parallel
-            // console.time("Processing batch of signatures");
-            // for (const signature of signatures) {
-            //     console.log(`Processing signature: ${signature.signature}`);
-            //     // await processSignature(signature, TOKEN_ADDRESS, lp);
-            // }
-            // console.timeEnd("Processing batch of signatures");
-
-            await processSignaturesInParallel(signatures, TOKEN_ADDRESS, lp);
-
-            console.log("Processed batch of signatures.");
-            break;
+            for (let i = 0; i < signatures.length; i += batchSize) {
+                await processSignaturesInParallel(signatures.slice(i, i + batchSize), TOKEN_ADDRESS, lp);
+                await sleep(1200);
+            }
 
             // Check if we need to continue with the next batch
             lastSignature = signatures[signatures.length - 1].signature;
+        } while (signaturesCount === 1000);
 
-        } while (signatures.length === 1000);
+        console.log(`Processed ${cnt} signatures.`);
 
-        // console.log("All signatures processed.");
+        console.log("All signatures processed.");
     } catch (error) {
         console.error("Error in main:", error);
     }
