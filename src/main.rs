@@ -1,6 +1,7 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
+use solana_sdk::inner_instruction;
 use solana_sdk::{bs58, commitment_config::CommitmentConfig};
-use solana_transaction_status::{EncodedConfirmedBlock, EncodedTransactionWithStatusMeta};
+use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions, UiInstruction};
 use solana_client::{
     rpc_client::RpcClient,
     rpc_request::RpcRequest,
@@ -57,7 +58,7 @@ pub struct TokenBalance {
     pub program_id: String,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct InnerInstruction {
     pub program_id_index: u32,
     pub accounts: Vec<u8>,
@@ -65,7 +66,7 @@ pub struct InnerInstruction {
     pub stack_height: Option<u32>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct InnerInstructions {
     pub index: u32,
     pub instructions: Vec<InnerInstruction>,
@@ -157,10 +158,13 @@ pub fn get_mint(
     {
         return "So11111111111111111111111111111111111111112".to_string();
     }
+    println!("Accounts: {:?}", accounts);
 
     let index = accounts.iter().position(|r| r == address).unwrap();
+    println!("Index: {:?}", index);
     let mut result: String = String::new();
 
+    println!("Token Balances: {:?}", token_balances);
     token_balances
         .iter()
         .filter(|token_balance| token_balance.account_index == index as u32)
@@ -297,8 +301,58 @@ fn process_block(block: EncodedConfirmedBlock) {
 
         for (idx, inst) in msg.instructions.into_iter().enumerate() {
             
-            // let inner_instruction = trx_meta.inner_instructions.clone().unwrap().get(idx).unwrap();
-            let inner_instruction_vec: Vec<InnerInstructions> = vec![];
+            let trx_meta_inner = trx_meta.inner_instructions.clone().expect("Inner instructions not found");
+            let first_instruction = trx_meta_inner.first().expect("First instruction not found");
+            let inner_instructions = first_instruction.clone().instructions;
+
+            // println!("Instruction: {:?}", inst);
+            // println!("Inner Instructions: {:?}", trx_meta_inner);
+            // println!("First Instruction: {:?}", first_instruction);
+
+            // let mut instructions = Vec::<InnerInstruction>::new();
+            // let first_instruction_index = first_instruction.index as u32;
+
+            // for inner_inst in first_instruction.instructions.iter() {
+            //     match inner_inst {
+            //         UiInstruction::Parsed(_) => continue,
+            //         UiInstruction::Compiled(compiled) => {
+            //             let program_id_index = compiled.program_id_index as u32;
+            //             let accounts = compiled.accounts.clone();
+            //             let data = compiled.data.clone().into_bytes();
+            //             let stack_height = compiled.stack_height;
+            //             let inner_instruction = InnerInstruction {
+            //                 program_id_index,
+            //                 accounts,
+            //                 data,
+            //                 stack_height,
+            //             };
+            //             instructions.push(inner_instruction);
+            //         },
+            //     };
+            // let inner_instructions = InnerInstructions {
+            //     index: first_instruction_index,
+            //     instructions,
+            // };
+            // println!("Inner Instructions: {:?}", inner_instructions);
+                // let inner_program = &accounts[inner_inst as usize];
+                // let inner_accounts = inner_inst.accounts.clone();
+                // let inner_data = inner_inst.data.clone();
+                // let inner_stack_height = inner_inst.stack_height.clone();
+
+                // let inner_instruction = InnerInstruction {
+                //     program_id_index: inner_inst.program_id_index,
+                //     accounts: inner_accounts,
+                //     data: inner_data,
+                //     stack_height: inner_stack_height,
+                // };
+
+                // let inner_instructions = InnerInstructions {
+                //     index: first_instruction.index,
+                //     instructions: vec![inner_instruction],
+                // };
+
+                // inner_instruction_vec.push(inner_instructions);
+            // }
 
             let program = &accounts[inst.program_id_index as usize];
             
@@ -321,12 +375,13 @@ fn process_block(block: EncodedConfirmedBlock) {
                 &post_token_balances_vec,
                 &"".to_string(),
                 false,
-                &inner_instruction_vec,
+                &inner_instructions,
                 0 as u32
             );
 
             if trade_data.is_some() {
                 let td = trade_data.unwrap();
+                println!("Trade Data: {:?}", td);
 
                 let td_name = td.name;
                 let td_address = td.dapp_address;
@@ -353,7 +408,7 @@ fn process_block(block: EncodedConfirmedBlock) {
                     base_amount: get_amt(
                         &td.vault_a,
                         0 as u32,
-                        &inner_instruction_vec,
+                        &trx_meta_inner,
                         &accounts,
                         &post_token_balances_vec,
                         td_address.clone(),
@@ -363,7 +418,7 @@ fn process_block(block: EncodedConfirmedBlock) {
                     quote_amount: get_amt(
                         &td.vault_b,
                         0 as u32,
-                        &inner_instruction_vec,
+                        &trx_meta_inner,
                         &accounts,
                         &post_token_balances_vec,
                         "".to_string(),
@@ -443,7 +498,7 @@ fn process_block(block: EncodedConfirmedBlock) {
             }
 
 
-            trx_meta.inner_instructions
+            trx_meta.inner_instructions.clone()
                 .expect("Inner instructions not found")
                 .iter()
                 .filter(|inner_instruction| inner_instruction.index == idx as u8)
@@ -461,7 +516,7 @@ fn process_block(block: EncodedConfirmedBlock) {
                                 &post_token_balances_vec,
                                 &program.to_string(),
                                 true,
-                                &inner_instruction_vec,
+                                &inner_instructions,
                                 inner_idx as u32,
                             );
 
@@ -496,7 +551,7 @@ fn process_block(block: EncodedConfirmedBlock) {
                                     base_amount: get_amt(
                                         &inner_td.vault_a,
                                         inner_idx as u32,
-                                        &inner_instruction_vec,
+                                        &trx_meta_inner,
                                         &accounts,
                                         &post_token_balances_vec,
                                         inner_td_dapp_address.clone(),
@@ -506,7 +561,7 @@ fn process_block(block: EncodedConfirmedBlock) {
                                     quote_amount: get_amt(
                                         &inner_td.vault_b,
                                         inner_idx as u32,
-                                        &inner_instruction_vec,
+                                        &trx_meta_inner,
                                         &accounts,
                                         &post_token_balances_vec,
                                         "".to_string(),
@@ -601,10 +656,11 @@ fn process_block(block: EncodedConfirmedBlock) {
                 });
 
             // println!("{:?}", trade_data);
+            
+        
             println!("{:?}", data);
             break;
         }
-
     }
 }
 
@@ -622,7 +678,7 @@ pub fn convert_to_date(ts: i64) -> String {
 pub fn get_amt(
     address: &String,
     input_inner_idx: u32,
-    inner_instructions: &Vec<InnerInstructions>,
+    inner_instructions: &Vec<UiInnerInstructions>,
     accounts: &Vec<String>,
     post_token_balances: &Vec<TokenBalance>,
     dapp_address: String,
@@ -676,7 +732,7 @@ pub fn get_amt(
 pub fn get_token_transfer(
     address: &String,
     input_inner_idx: u32,
-    inner_instructions: &Vec<InnerInstructions>,
+    inner_instructions: &Vec<UiInnerInstructions>,
     accounts: &Vec<String>,
     account_name_to_check: String,
     dapp_address: String,
@@ -704,13 +760,19 @@ pub fn get_token_transfer(
             .iter()
             .enumerate()
             .for_each(|(inner_idx, inner_inst)| {
+                let inner_inst = match inner_inst {
+                    UiInstruction::Parsed(_) => return,
+                    UiInstruction::Compiled(compiled) => compiled,
+                };
                 let inner_program = &accounts[inner_inst.program_id_index as usize];
-
                 if inner_program
                     .as_str()
                     .eq("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
                 {
-                    let (discriminator_bytes, rest) = inner_inst.data.split_at(1);
+                    println!("Inner Program: {:?}", inner_program);
+                    // println!("Data: {:?}", inner_inst.data.clone().into_bytes());
+                    let data = bs58::decode(inner_inst.data.clone()).into_vec().expect("Error decoding data");
+                    let (discriminator_bytes, rest) = data.split_at(1);
                     let discriminator: u8 = u8::from(discriminator_bytes[0]);
 
                     match discriminator {
@@ -797,7 +859,7 @@ pub fn get_token_transfer(
 pub fn get_token_22_transfer(
     address: &String,
     input_inner_idx: u32,
-    inner_instructions: &Vec<InnerInstructions>,
+    inner_instructions: &Vec<UiInnerInstructions>,
     accounts: &Vec<String>,
     account_name_to_check: String,
 ) -> Option<f64> {
@@ -810,13 +872,17 @@ pub fn get_token_22_transfer(
             .iter()
             .enumerate()
             .for_each(|(inner_idx, inner_inst)| {
+                let inner_inst = match inner_inst {
+                    UiInstruction::Parsed(_) => return,
+                    UiInstruction::Compiled(compiled) => compiled,
+                };
                 let inner_program = &accounts[inner_inst.program_id_index as usize];
 
                 if inner_program
                     .as_str()
                     .eq("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
                 {
-                    let (discriminator_bytes, rest) = inner_inst.data.split_at(1);
+                    let data = bs58::decode(inner_inst.data.clone()).into_vec().expect("Error decoding data");                    let (discriminator_bytes, rest) = data.split_at(1);
                     let discriminator: u8 = u8::from(discriminator_bytes[0]);
 
                     match discriminator {
@@ -906,7 +972,7 @@ fn get_trade_instruction(
     post_token_balances: &Vec<TokenBalance>,
     outer_program: &String,
     is_inner: bool,
-    inner_instructions: &Vec<InnerInstructions>,
+    inner_instructions: &Vec<UiInstruction>,
     input_inner_idx: u32,
 ) -> Option<TradeInstruction> {
     let input_accounts = prepare_input_accounts(account_indices, accounts);
@@ -931,7 +997,7 @@ fn get_trade_instruction(
 fn get_system_program_transfer(
     address: &String,
     input_inner_idx: u32,
-    inner_instructions: &Vec<InnerInstructions>,
+    inner_instructions: &Vec<UiInnerInstructions>,
     accounts: &Vec<String>,
     account_name_to_check: String,
     pre_balances: Vec<u64>,
@@ -946,13 +1012,18 @@ fn get_system_program_transfer(
             .iter()
             .enumerate()
             .for_each(|(inner_idx, inner_inst)| {
+                let inner_inst = match inner_inst {
+                    UiInstruction::Parsed(_) => return,
+                    UiInstruction::Compiled(compiled) => compiled,
+                };
                 let inner_program = &accounts[inner_inst.program_id_index as usize];
 
                 if inner_program
                     .as_str()
                     .eq("11111111111111111111111111111111")
                 {
-                    let (discriminator_bytes, rest) = inner_inst.data.split_at(4);
+                    // decode hex
+                    let data = bs58::decode(inner_inst.data.clone()).into_vec().expect("Error decoding data");                    let (discriminator_bytes, rest) = data.split_at(4);
 
                     let disc_bytes_arr: [u8; 4] = discriminator_bytes.to_vec().try_into().unwrap();
                     let discriminator: u32 = u32::from_le_bytes(disc_bytes_arr);
