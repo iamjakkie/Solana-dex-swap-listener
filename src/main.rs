@@ -1,13 +1,14 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use solana_sdk::inner_instruction;
+use solana_sdk::program_pack::Pack;
+use solana_sdk::pubkey::Pubkey;
 use solana_sdk::{bs58, commitment_config::CommitmentConfig};
 use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions, UiInstruction};
 use solana_client::{
     rpc_client::RpcClient,
     rpc_request::RpcRequest,
 };
-use solana_sdk::pubkey::Pubkey;
-
+use spl_token;
 use tokio::time::{Interval, Duration};
 use borsh::{BorshDeserialize, BorshSerialize};
 use core::time;
@@ -16,9 +17,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 use serde_json::{json, Value};
 use anyhow::Result;
+use lazy_static::lazy_static;
 
 const RAYDIUM_PROGRAM_ID: &str = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
 
+lazy_static! {
+    static ref RPC_CLIENT: Arc<RpcClient> = {
+        let rpc_url = "https://api.mainnet-beta.solana.com";
+        Arc::new(RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed()))
+    };
+}
 
 #[derive(Debug)]
 pub struct TradeInstruction {
@@ -77,6 +85,7 @@ pub struct TradeData {
     pub block_date: String,
     pub block_time: i64,
     pub block_slot: u64,
+    pub signature: String,
     pub tx_id: String,
     pub signer: String,
     pub pool_address: String,
@@ -118,7 +127,7 @@ pub fn parse_trade_instruction(
 
     let mut result = None;
 
-    println!("Discriminator: {:?}", discriminator);
+    // println!("Discriminator: {:?}", discriminator);
 
     match discriminator {
         9 => {
@@ -152,26 +161,36 @@ pub fn get_mint(
     token_balances: &Vec<TokenBalance>,
     accounts: &Vec<String>,
     dapp_address: String,
-) -> String {
+) -> Option<String> {
     if dapp_address.eq("MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG")
         || dapp_address.eq("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
     {
-        return "So11111111111111111111111111111111111111112".to_string();
+        return Some("So11111111111111111111111111111111111111112".to_string());
     }
-    println!("Accounts: {:?}", accounts);
+    // get spl token address for token account (address)
+    let add = Pubkey::from_str(address).unwrap();
+    let rpc_client = RPC_CLIENT.clone();
+    let acc_data = rpc_client.get_account(&add).unwrap();
+    let token_data = spl_token::state::Account::unpack(acc_data.data.as_slice());
 
-    let index = accounts.iter().position(|r| r == address).unwrap();
-    println!("Index: {:?}", index);
-    let mut result: String = String::new();
-
-    println!("Token Balances: {:?}", token_balances);
-    token_balances
-        .iter()
-        .filter(|token_balance| token_balance.account_index == index as u32)
-        .for_each(|token_balance| {
-            result = token_balance.mint.clone();
-        });
-    return result;
+    match token_data {
+        Ok(token_data) => {
+            let mint = token_data.mint.to_string();
+            Some(mint)
+        }
+        Err(_) => {
+            let index = accounts.iter().position(|r| r == address).unwrap();
+            let mut result: String = String::new();
+            token_balances
+                .iter()
+                .filter(|token_balance| token_balance.account_index == index as u32)
+                .for_each(|token_balance| {
+                    result = token_balance.mint.clone();
+                });
+            Some(result)
+        }
+    }
+    
 }
 
 fn get_vault_a(
@@ -182,7 +201,7 @@ fn get_vault_a(
     let mut vault_a = input_accounts.get(4).unwrap().to_string();
     let mint_a = get_mint(&vault_a, post_token_balances, accounts, "".to_string());
 
-    if mint_a.is_empty() {
+    if mint_a.is_some() {
         vault_a = input_accounts.get(5).unwrap().to_string();
     }
 
@@ -199,7 +218,7 @@ fn get_vault_b(
     let mut vault_a = input_accounts.get(4).unwrap().to_string();
     let mint_a = get_mint(&vault_a, post_token_balances, accounts, "".to_string());
 
-    if mint_a.is_empty() {
+    if mint_a.is_some() {
         vault_a_index += 1;
         vault_a = input_accounts.get(vault_a_index).unwrap().to_string();
     }
@@ -255,7 +274,6 @@ fn process_block(block: EncodedConfirmedBlock) {
 
         let accounts = msg.account_keys;
 
-
         if !accounts.contains(&RAYDIUM_PROGRAM_ID.to_string()) {
             continue;
         }
@@ -301,9 +319,21 @@ fn process_block(block: EncodedConfirmedBlock) {
 
         for (idx, inst) in msg.instructions.into_iter().enumerate() {
             
-            let trx_meta_inner = trx_meta.inner_instructions.clone().expect("Inner instructions not found");
-            let first_instruction = trx_meta_inner.first().expect("First instruction not found");
-            let inner_instructions = first_instruction.clone().instructions;
+            let trx_meta_inner = trx_meta.inner_instructions.clone().unwrap_or(vec![]);
+            
+            let first_instruction = trx_meta_inner.first();
+
+            let mut first_instruction_ok: &UiInnerInstructions;
+
+            if first_instruction.is_none() {
+                // println!("Signature: {:?}", ui.signatures[0]);
+                continue;
+            } else {
+                first_instruction_ok = first_instruction.unwrap();
+            }
+            
+            
+            let inner_instructions = first_instruction_ok.clone().instructions;
 
             // println!("Instruction: {:?}", inst);
             // println!("Inner Instructions: {:?}", trx_meta_inner);
@@ -364,7 +394,7 @@ fn process_block(block: EncodedConfirmedBlock) {
             let decoded_data = bs58::decode(inst.data.clone()).into_vec().unwrap();
 
             // print signature
-            println!("Signature: {:?}", ui.signatures[0]);
+            // println!("Signature: {:?}", ui.signatures[0]);
 
             let trade_data = get_trade_instruction(
                 program,
@@ -381,16 +411,17 @@ fn process_block(block: EncodedConfirmedBlock) {
 
             if trade_data.is_some() {
                 let td = trade_data.unwrap();
-                println!("Trade Data: {:?}", td);
+                // println!("Trade Data: {:?}", td);
 
                 let td_name = td.name;
                 let td_address = td.dapp_address;
 
-                data.push(TradeData {
+                let trade = TradeData {
                     block_date: convert_to_date(timestamp),
                     tx_id: bs58::encode(&ui.signatures[0]).into_string(),
                     block_slot: block.parent_slot,
                     block_time: timestamp,
+                    signature: ui.signatures[0].clone(),
                     signer: accounts.get(0).unwrap().to_string(),
                     pool_address: td.amm,
                     base_mint: get_mint(
@@ -398,13 +429,13 @@ fn process_block(block: EncodedConfirmedBlock) {
                         &post_token_balances_vec,
                         &accounts,
                         td_address.clone(),
-                    ),
+                    ).unwrap(),
                     quote_mint: get_mint(
                         &td.vault_b,
                         &post_token_balances_vec,
                         &accounts,
                         "".to_string(),
-                    ),
+                    ).unwrap(),
                     base_amount: get_amt(
                         &td.vault_a,
                         0 as u32,
@@ -438,7 +469,9 @@ fn process_block(block: EncodedConfirmedBlock) {
                         &pre_balances,
                         &post_balances,
                     ),
-                });
+                };
+
+                println!("Trade: {:?}", trade);
 
                 // if td.second_swap_amm.clone().unwrap_or_default() != "" {
                 //     data.push(TradeData {
@@ -497,169 +530,165 @@ fn process_block(block: EncodedConfirmedBlock) {
                 // }
             }
 
+            // commented out for tests
+            // TODO: check if correct
+            // trx_meta.inner_instructions.clone()
+            //     .expect("Inner instructions not found")
+            //     .iter()
+            //     .filter(|inner_instruction| inner_instruction.index == idx as u8)
+            //     .for_each(|inner_instruction| {
+            //         inner_instruction.instructions.iter().enumerate().for_each(
+            //             |(inner_idx, inner_inst)| {
+            //                 let inner_program =
+            //                     &accounts[inst.program_id_index as usize];
+            //                 let inner_trade_data = get_trade_instruction(
+            //                     inner_program,
+            //                     &decoded_data,
+            //                     &inst.accounts,
+            //                     &accounts,
+            //                     &pre_token_balances_vec,
+            //                     &post_token_balances_vec,
+            //                     &program.to_string(),
+            //                     true,
+            //                     &inner_instructions,
+            //                     inner_idx as u32,
+            //                 );
 
-            trx_meta.inner_instructions.clone()
-                .expect("Inner instructions not found")
-                .iter()
-                .filter(|inner_instruction| inner_instruction.index == idx as u8)
-                .for_each(|inner_instruction| {
-                    inner_instruction.instructions.iter().enumerate().for_each(
-                        |(inner_idx, inner_inst)| {
-                            let inner_program =
-                                &accounts[inst.program_id_index as usize];
-                            let inner_trade_data = get_trade_instruction(
-                                inner_program,
-                                &decoded_data,
-                                &inst.accounts,
-                                &accounts,
-                                &pre_token_balances_vec,
-                                &post_token_balances_vec,
-                                &program.to_string(),
-                                true,
-                                &inner_instructions,
-                                inner_idx as u32,
-                            );
+            //                 if inner_trade_data.is_some() {
+            //                     let inner_td = inner_trade_data.unwrap();
 
-                            if inner_trade_data.is_some() {
-                                let inner_td = inner_trade_data.unwrap();
-
-                                let inner_td_name = inner_td.name;
-                                let inner_td_dapp_address = inner_td.dapp_address;
+            //                     let inner_td_name = inner_td.name;
+            //                     let inner_td_dapp_address = inner_td.dapp_address;
 
                                 
 
-                                data.push(TradeData {
-                                    block_date: convert_to_date(timestamp),
-                                    tx_id: bs58::encode(&signature)
-                                        .into_string(),
-                                    block_slot: slot,
-                                    block_time: timestamp,
-                                    signer: accounts.get(0).unwrap().to_string(),
-                                    pool_address: inner_td.amm,
-                                    base_mint: get_mint(
-                                        &inner_td.vault_a,
-                                        &post_token_balances_vec,
-                                        &accounts,
-                                        inner_td_dapp_address.clone(),
-                                    ),
-                                    quote_mint: get_mint(
-                                        &inner_td.vault_b,
-                                        &post_token_balances_vec,
-                                        &accounts,
-                                        "".to_string(),
-                                    ),
-                                    base_amount: get_amt(
-                                        &inner_td.vault_a,
-                                        inner_idx as u32,
-                                        &trx_meta_inner,
-                                        &accounts,
-                                        &post_token_balances_vec,
-                                        inner_td_dapp_address.clone(),
-                                        pre_balances.clone(),
-                                        post_balances.clone(),
-                                    ),
-                                    quote_amount: get_amt(
-                                        &inner_td.vault_b,
-                                        inner_idx as u32,
-                                        &trx_meta_inner,
-                                        &accounts,
-                                        &post_token_balances_vec,
-                                        "".to_string(),
-                                        pre_balances.clone(),
-                                        post_balances.clone(),
-                                    ),
-                                    base_vault: inner_td.vault_a,
-                                    quote_vault: inner_td.vault_b,
-                                    is_inner_instruction: true,
-                                    instruction_index: idx as u32,
-                                    instruction_type: inner_td_name.clone(),
-                                    inner_instruction_index: inner_idx as u32,
-                                    outer_program: program.to_string(),
-                                    inner_program: inner_td_dapp_address.clone(),
-                                    txn_fee_lamports: trx_meta.fee,
-                                    signer_lamports_change: get_signer_balance_change(
-                                        &pre_balances,
-                                        &post_balances,
-                                    ),
-                                });
+            //                     data.push(TradeData {
+            //                         block_date: convert_to_date(timestamp),
+            //                         tx_id: bs58::encode(&signature)
+            //                             .into_string(),
+            //                         block_slot: slot,
+            //                         block_time: timestamp,
+            //                         signer: accounts.get(0).unwrap().to_string(),
+            //                         pool_address: inner_td.amm,
+            //                         base_mint: get_mint(
+            //                             &inner_td.vault_a,
+            //                             &post_token_balances_vec,
+            //                             &accounts,
+            //                             inner_td_dapp_address.clone(),
+            //                         ),
+            //                         quote_mint: get_mint(
+            //                             &inner_td.vault_b,
+            //                             &post_token_balances_vec,
+            //                             &accounts,
+            //                             "".to_string(),
+            //                         ),
+            //                         base_amount: get_amt(
+            //                             &inner_td.vault_a,
+            //                             inner_idx as u32,
+            //                             &trx_meta_inner,
+            //                             &accounts,
+            //                             &post_token_balances_vec,
+            //                             inner_td_dapp_address.clone(),
+            //                             pre_balances.clone(),
+            //                             post_balances.clone(),
+            //                         ),
+            //                         quote_amount: get_amt(
+            //                             &inner_td.vault_b,
+            //                             inner_idx as u32,
+            //                             &trx_meta_inner,
+            //                             &accounts,
+            //                             &post_token_balances_vec,
+            //                             "".to_string(),
+            //                             pre_balances.clone(),
+            //                             post_balances.clone(),
+            //                         ),
+            //                         base_vault: inner_td.vault_a,
+            //                         quote_vault: inner_td.vault_b,
+            //                         is_inner_instruction: true,
+            //                         instruction_index: idx as u32,
+            //                         instruction_type: inner_td_name.clone(),
+            //                         inner_instruction_index: inner_idx as u32,
+            //                         outer_program: program.to_string(),
+            //                         inner_program: inner_td_dapp_address.clone(),
+            //                         txn_fee_lamports: trx_meta.fee,
+            //                         signer_lamports_change: get_signer_balance_change(
+            //                             &pre_balances,
+            //                             &post_balances,
+            //                         ),
+            //                     });
 
-                                // if inner_td.second_swap_amm.clone().unwrap_or_default()
-                                //     != ""
-                                // {
-                                //     data.push(TradeData {
-                                //         block_date: convert_to_date(timestamp),
-                                //         tx_id: bs58::encode(&transaction.signatures[0])
-                                //             .into_string(),
-                                //         block_slot: slot,
-                                //         block_time: timestamp,
-                                //         signer: accounts.get(0).unwrap().to_string(),
-                                //         pool_address: inner_td
-                                //             .second_swap_amm
-                                //             .clone()
-                                //             .unwrap(),
-                                //         base_mint: get_mint(
-                                //             &inner_td.second_swap_vault_a.clone().unwrap(),
-                                //             &post_token_balances,
-                                //             &accounts,
-                                //             "".to_string(),
-                                //         ),
-                                //         quote_mint: get_mint(
-                                //             &inner_td.second_swap_vault_b.clone().unwrap(),
-                                //             &post_token_balances,
-                                //             &accounts,
-                                //             "".to_string(),
-                                //         ),
-                                //         base_amount: get_amt(
-                                //             &inner_td.second_swap_vault_a.clone().unwrap(),
-                                //             inner_idx as u32,
-                                //             &inner_instructions,
-                                //             &accounts,
-                                //             &post_token_balances,
-                                //             "".to_string(),
-                                //             pre_balances.clone(),
-                                //             post_balances.clone(),
-                                //         ),
-                                //         quote_amount: get_amt(
-                                //             &inner_td.second_swap_vault_b.clone().unwrap(),
-                                //             inner_idx as u32,
-                                //             &inner_instructions,
-                                //             &accounts,
-                                //             &post_token_balances,
-                                //             "".to_string(),
-                                //             pre_balances.clone(),
-                                //             post_balances.clone(),
-                                //         ),
-                                //         base_vault: inner_td
-                                //             .second_swap_vault_a
-                                //             .clone()
-                                //             .unwrap(),
-                                //         quote_vault: inner_td
-                                //             .second_swap_vault_b
-                                //             .clone()
-                                //             .unwrap(),
-                                //         is_inner_instruction: true,
-                                //         instruction_index: idx as u32,
-                                //         instruction_type: inner_td_name.clone(),
-                                //         inner_instruction_index: inner_idx as u32,
-                                //         outer_program: program.to_string(),
-                                //         inner_program: inner_td_dapp_address.clone(),
-                                //         txn_fee_lamports: meta.fee,
-                                //         signer_lamports_change: get_signer_balance_change(
-                                //             &pre_balances,
-                                //             &post_balances,
-                                //         ),
-                                //     });
-                                // }
-                            }
-                        },
-                    )
-                });
-
-            // println!("{:?}", trade_data);
-            
+            //                     // if inner_td.second_swap_amm.clone().unwrap_or_default()
+            //                     //     != ""
+            //                     // {
+            //                     //     data.push(TradeData {
+            //                     //         block_date: convert_to_date(timestamp),
+            //                     //         tx_id: bs58::encode(&transaction.signatures[0])
+            //                     //             .into_string(),
+            //                     //         block_slot: slot,
+            //                     //         block_time: timestamp,
+            //                     //         signer: accounts.get(0).unwrap().to_string(),
+            //                     //         pool_address: inner_td
+            //                     //             .second_swap_amm
+            //                     //             .clone()
+            //                     //             .unwrap(),
+            //                     //         base_mint: get_mint(
+            //                     //             &inner_td.second_swap_vault_a.clone().unwrap(),
+            //                     //             &post_token_balances,
+            //                     //             &accounts,
+            //                     //             "".to_string(),
+            //                     //         ),
+            //                     //         quote_mint: get_mint(
+            //                     //             &inner_td.second_swap_vault_b.clone().unwrap(),
+            //                     //             &post_token_balances,
+            //                     //             &accounts,
+            //                     //             "".to_string(),
+            //                     //         ),
+            //                     //         base_amount: get_amt(
+            //                     //             &inner_td.second_swap_vault_a.clone().unwrap(),
+            //                     //             inner_idx as u32,
+            //                     //             &inner_instructions,
+            //                     //             &accounts,
+            //                     //             &post_token_balances,
+            //                     //             "".to_string(),
+            //                     //             pre_balances.clone(),
+            //                     //             post_balances.clone(),
+            //                     //         ),
+            //                     //         quote_amount: get_amt(
+            //                     //             &inner_td.second_swap_vault_b.clone().unwrap(),
+            //                     //             inner_idx as u32,
+            //                     //             &inner_instructions,
+            //                     //             &accounts,
+            //                     //             &post_token_balances,
+            //                     //             "".to_string(),
+            //                     //             pre_balances.clone(),
+            //                     //             post_balances.clone(),
+            //                     //         ),
+            //                     //         base_vault: inner_td
+            //                     //             .second_swap_vault_a
+            //                     //             .clone()
+            //                     //             .unwrap(),
+            //                     //         quote_vault: inner_td
+            //                     //             .second_swap_vault_b
+            //                     //             .clone()
+            //                     //             .unwrap(),
+            //                     //         is_inner_instruction: true,
+            //                     //         instruction_index: idx as u32,
+            //                     //         instruction_type: inner_td_name.clone(),
+            //                     //         inner_instruction_index: inner_idx as u32,
+            //                     //         outer_program: program.to_string(),
+            //                     //         inner_program: inner_td_dapp_address.clone(),
+            //                     //         txn_fee_lamports: meta.fee,
+            //                     //         signer_lamports_change: get_signer_balance_change(
+            //                     //             &pre_balances,
+            //                     //             &post_balances,
+            //                     //         ),
+            //                     //     });
+            //                     // }
+            //                 }
+            //             },
+            //         )
+            //     });            
         
-            println!("{:?}", data);
-            break;
         }
     }
 }
@@ -769,7 +798,7 @@ pub fn get_token_transfer(
                     .as_str()
                     .eq("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
                 {
-                    println!("Inner Program: {:?}", inner_program);
+                    // println!("Inner Program: {:?}", inner_program);
                     // println!("Data: {:?}", inner_inst.data.clone().into_bytes());
                     let data = bs58::decode(inner_inst.data.clone()).into_vec().expect("Error decoding data");
                     let (discriminator_bytes, rest) = data.split_at(1);

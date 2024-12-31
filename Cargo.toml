@@ -35,4 +35,6 @@ base64 = "0.22.1"
 serde = "1.0.216"
 hex = "0.4.3"
 borsh = "1.5.3"
+spl-associated-token-account = "6.0.0"
+spl-token = "7.0.0"
 
