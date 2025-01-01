@@ -1,4 +1,4 @@
-use crate::models::{TokenBalance, TradeInstruction, Transfer};
+use crate::models::{TokenBalance, TradeData, TradeInstruction, Transfer};
 use borsh::BorshDeserialize;
 use solana_sdk::{bs58, inner_instruction};
 use solana_sdk::program_pack::Pack;
@@ -378,6 +378,9 @@ pub fn get_token_22_transfer(
 pub fn prepare_input_accounts(account_indices: &Vec<u8>, accounts: &Vec<String>) -> Vec<String> {
     let mut instruction_accounts: Vec<String> = vec![];
     for (index, &el) in account_indices.iter().enumerate() {
+        if el > accounts.len() as u8 {
+            continue;
+        }
         let account = &accounts[el as usize];
         instruction_accounts.push(account.to_string());
     }
@@ -464,4 +467,51 @@ fn get_system_program_transfer(
     }
 
     result
+}
+
+pub fn save_to_csv(data: Vec<TradeData>) {
+    let mut wtr = csv::Writer::from_path("output.csv").unwrap();
+    wtr.write_record(&[
+        "Block Date",
+        "Block Time",
+        "Block Slot",
+        "Signature",
+        "Tx Id",
+        "Signer",
+        "Pool Address",
+        "Base Mint",
+        "Quote Mint",
+        "Base Vault",
+        "Quote Vault",
+        "Base Amount",
+        "Quote Amount",
+        "Is Inner Instruction",
+        "Instruction Index",
+        "Instruction Type",
+    ])
+    .unwrap();
+
+    for trade in data {
+        wtr.write_record(&[
+            trade.block_date,
+            trade.block_time.to_string(),
+            trade.block_slot.to_string(),
+            trade.signature,
+            trade.tx_id,
+            trade.signer,
+            trade.pool_address,
+            trade.base_mint,
+            trade.quote_mint,
+            trade.base_vault,
+            trade.quote_vault,
+            trade.base_amount.to_string(),
+            trade.quote_amount.to_string(),
+            trade.is_inner_instruction.to_string(),
+            trade.instruction_index.to_string(),
+            trade.instruction_type,
+        ])
+        .unwrap();
+    }
+
+    wtr.flush().unwrap();
 }
