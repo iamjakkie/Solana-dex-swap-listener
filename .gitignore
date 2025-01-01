@@ -135,4 +135,7 @@ downloads
 trades.csv
 .DS_Store
 
-target
+
+# Added by cargo
+
+/target
