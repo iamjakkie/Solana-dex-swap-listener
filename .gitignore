@@ -139,3 +139,5 @@ trades.csv
 # Added by cargo
 
 /target
+
+.codegpt

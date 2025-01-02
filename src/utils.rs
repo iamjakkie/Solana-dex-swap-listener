@@ -1,9 +1,12 @@
 use crate::models::{TokenBalance, TradeData, TradeInstruction, Transfer};
 use borsh::BorshDeserialize;
+use csv::WriterBuilder;
 use solana_sdk::{bs58, inner_instruction};
 use solana_sdk::program_pack::Pack;
 use solana_sdk::pubkey::Pubkey;
 use solana_transaction_status::{UiInnerInstructions, UiInstruction};
+use std::fs::OpenOptions;
+use std::path::Path;
 use std::str::FromStr;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use crate::global::RPC_CLIENT;
@@ -378,7 +381,7 @@ pub fn get_token_22_transfer(
 pub fn prepare_input_accounts(account_indices: &Vec<u8>, accounts: &Vec<String>) -> Vec<String> {
     let mut instruction_accounts: Vec<String> = vec![];
     for (index, &el) in account_indices.iter().enumerate() {
-        if el > accounts.len() as u8 {
+        if el >= accounts.len() as u8 {
             continue;
         }
         let account = &accounts[el as usize];
@@ -470,48 +473,69 @@ fn get_system_program_transfer(
 }
 
 pub fn save_to_csv(data: Vec<TradeData>) {
-    let mut wtr = csv::Writer::from_path("output.csv").unwrap();
-    wtr.write_record(&[
-        "Block Date",
-        "Block Time",
-        "Block Slot",
-        "Signature",
-        "Tx Id",
-        "Signer",
-        "Pool Address",
-        "Base Mint",
-        "Quote Mint",
-        "Base Vault",
-        "Quote Vault",
-        "Base Amount",
-        "Quote Amount",
-        "Is Inner Instruction",
-        "Instruction Index",
-        "Instruction Type",
-    ])
-    .unwrap();
-
+    let file_path = "output.csv";
+    
+    // Check if file already exists
+    let file_exists = Path::new(file_path).exists();
+    
+    // Open the file in append mode
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)
+        .expect("Failed to open file");
+    
+    // Create a CSV writer that won't automatically write headers
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(file);
+    
+    // If the file didn't exist, write the header first
+    if !file_exists {
+        wtr.write_record(&[
+            "Block Date",
+            "Block Time",
+            "Block Slot",
+            "Signature",
+            "Tx Id",
+            "Signer",
+            "Pool Address",
+            "Base Mint",
+            "Quote Mint",
+            "Base Vault",
+            "Quote Vault",
+            "Base Amount",
+            "Quote Amount",
+            "Is Inner Instruction",
+            "Instruction Index",
+            "Instruction Type",
+        ])
+        .expect("Failed to write header");
+    }
+    
+    // Append the new data
     for trade in data {
         wtr.write_record(&[
-            trade.block_date,
-            trade.block_time.to_string(),
-            trade.block_slot.to_string(),
-            trade.signature,
-            trade.tx_id,
-            trade.signer,
-            trade.pool_address,
-            trade.base_mint,
-            trade.quote_mint,
-            trade.base_vault,
-            trade.quote_vault,
-            trade.base_amount.to_string(),
-            trade.quote_amount.to_string(),
-            trade.is_inner_instruction.to_string(),
-            trade.instruction_index.to_string(),
-            trade.instruction_type,
+            &trade.block_date,
+            &trade.block_time.to_string(),
+            &trade.block_slot.to_string(),
+            &trade.signature,
+            &trade.tx_id,
+            &trade.signer,
+            &trade.pool_address,
+            &trade.base_mint,
+            &trade.quote_mint,
+            &trade.base_vault,
+            &trade.quote_vault,
+            &trade.base_amount.to_string(),
+            &trade.quote_amount.to_string(),
+            &trade.is_inner_instruction.to_string(),
+            &trade.instruction_index.to_string(),
+            &trade.instruction_type,
         ])
-        .unwrap();
+        .expect("Failed to write record");
     }
-
-    wtr.flush().unwrap();
+    
+    // Flush to ensure everything is written to disk
+    wtr.flush().expect("Failed to flush");
 }
