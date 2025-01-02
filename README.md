@@ -27,7 +27,7 @@ Key Features
 Getting Started
 
 1. Clone the Repository
-   git clone https://github.com/yourusername/solana-raydium-listener.git
+   git clone https://github.com/iamjakkie/Raydium-token-listener.git
    cd solana-raydium-listener
 
 2. Install Rust (if you haven’t already)
