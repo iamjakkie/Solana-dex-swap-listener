@@ -22,10 +22,11 @@ async fn main() {
 
     loop {
         let latest_slot = get_latest_slot().await.expect("Failed to get latest slot");
+        // let latest_slot = 312269072;
         // println!("Latest slot: {}", latest_slot);
 
         let start_slot = match last_processed_slot {
-            Some(slot) => slot + 1,
+            Some(slot) => slot - 1,
             None => latest_slot,
         };
 
@@ -37,7 +38,7 @@ async fn main() {
                     println!("Failed to fetch block: {}", block_num);
                     let block_err = block.as_ref().err();
                     println!("{:?}", block_err);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
                     let block = fetch_block_with_version(block_num).await;
                 }
                 let block = block.unwrap();

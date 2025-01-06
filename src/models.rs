@@ -1,4 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::Deserialize;
+use solana_sdk::pubkey::Pubkey;
 
 #[derive(Debug)]
 pub struct TradeInstruction {
@@ -85,4 +87,67 @@ pub struct Output {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Default)]
 pub struct Transfer {
     pub amount: u64,
+}
+
+#[derive(Debug, BorshDeserialize, BorshSerialize)]
+pub struct MarketDataStruct {
+    pub status: u64,
+    pub nonce: u64,
+    pub max_order: u64,
+    pub depth: u64,
+    pub base_decimal: u64,
+    pub quote_decimal: u64,
+    pub state: u64,
+    pub reset_flag: u64,
+    pub min_size: u64,
+    pub vol_max_cut_ratio: u64,
+    pub amount_wave_ratio: u64,
+    pub base_lot_size: u64,
+    pub quote_lot_size: u64,
+    pub min_price_multiplier: u64,
+    pub max_price_multiplier: u64,
+    pub system_decimal_value: u64,
+    pub min_separate_numerator: u64,
+    pub min_separate_denominator: u64,
+    pub trade_fee_numerator: u64,
+    pub trade_fee_denominator: u64,
+    pub pnl_numerator: u64,
+    pub pnl_denominator: u64,
+    pub swap_fee_numerator: u64,
+    pub swap_fee_denominator: u64,
+    pub base_need_take_pnl: u64,
+    pub quote_need_take_pnl: u64,
+    pub quote_total_pnl: u64,
+    pub base_total_pnl: u64,
+    pub pool_open_time: u64,
+    pub punish_pc_amount: u64,
+    pub punish_coin_amount: u64,
+    pub orderbook_to_init_time: u64,
+
+    // 128-bit fields (u128 in Rust)
+    pub swap_base_in_amount: u128,
+    pub swap_quote_out_amount: u128,
+    pub swap_base2_quote_fee: u64, // stays u64 per your snippet
+    pub swap_quote_in_amount: u128,
+    pub swap_base_out_amount: u128,
+    pub swap_quote2_base_fee: u64, // stays u64 per your snippet
+
+    // Each publicKey => 32 bytes
+    pub base_vault: Pubkey,
+    pub quote_vault: Pubkey,
+    pub base_mint: [u8; 32],
+    pub quote_mint: [u8; 32],
+    pub lp_mint: [u8; 32],
+    pub open_orders: [u8; 32],
+    pub market_id: [u8; 32],
+    pub market_program_id: [u8; 32],
+    pub target_orders: [u8; 32],
+    pub withdraw_queue: [u8; 32],
+    pub lp_vault: [u8; 32],
+    pub owner: [u8; 32],
+
+    pub lp_reserve: u64,
+
+    // 3 * u64 for padding
+    pub padding: [u64; 3],
 }

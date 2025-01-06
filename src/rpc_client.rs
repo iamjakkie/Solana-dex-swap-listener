@@ -11,7 +11,8 @@ pub async fn fetch_block_with_version(
     let rpc_client = RPC_CLIENT.clone();
     let params = json!([
         block_slot,
-        { "maxSupportedTransactionVersion": 0 }
+        { "maxSupportedTransactionVersion": 0 ,
+          "commitment": CommitmentLevel::Confirmed }
     ]);
 
     let response: serde_json::Value = rpc_client.send(solana_client::rpc_request::RpcRequest::GetBlock, params)?;
