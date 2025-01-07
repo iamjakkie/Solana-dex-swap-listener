@@ -1,4 +1,4 @@
-use crate::models::{TokenBalance, TradeData, TradeInstruction, Transfer};
+use crate::models::{MarketDataStruct, TokenBalance, TradeData, Transfer};
 use borsh::BorshDeserialize;
 use csv::WriterBuilder;
 use solana_sdk::{bs58, inner_instruction};
@@ -27,7 +27,6 @@ pub fn get_mint(
     let rpc_client = RPC_CLIENT.clone();
     let acc_data = rpc_client.get_account(&add).unwrap();
     let token_data = spl_token::state::Account::unpack(acc_data.data.as_slice());
-
     match token_data {
         Ok(token_data) => {
             let mint = token_data.mint.to_string();
@@ -46,6 +45,14 @@ pub fn get_mint(
         }
     }
     
+}
+
+pub fn get_amm_data(amm_address: &String) {
+    let add = Pubkey::from_str(amm_address).unwrap();
+    let rpc_client = RPC_CLIENT.clone();
+    let acc_data = rpc_client.get_account(&add).unwrap().data;
+    let decoded_data = MarketDataStruct::try_from_slice(&acc_data).unwrap();
+    println!("Account Data: {:?}", decoded_data);
 }
 
 pub fn get_vault_a(
@@ -68,6 +75,8 @@ pub fn get_vault_b(
     post_token_balances: &Vec<TokenBalance>,
     accounts: &Vec<String>,
 ) -> String {
+    println!("Input Accounts: {:?}", input_accounts);
+
     let mut vault_a_index = 4;
 
     let mut vault_a = input_accounts.get(4).unwrap().to_string();
@@ -188,7 +197,11 @@ pub fn get_token_transfer(
                     UiInstruction::Parsed(_) => return,
                     UiInstruction::Compiled(compiled) => compiled,
                 };
-                let inner_program = &accounts[inner_inst.program_id_index as usize];
+                let program_id_index = inner_inst.program_id_index as usize;
+                if program_id_index >= accounts.len() {
+                    return;
+                }
+                let inner_program = &accounts[program_id_index];
                 if inner_program
                     .as_str()
                     .eq("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
