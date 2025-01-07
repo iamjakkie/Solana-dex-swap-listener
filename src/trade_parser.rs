@@ -60,13 +60,12 @@ pub fn get_trade_instruction(
     let mut result = None;
     match address.as_str() {
         "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" => {
-            result = 
-                parse_trade_instruction(
-                    &instruction_data,
-                    input_accounts,
-                    &post_token_balances,
-                    accounts,
-                );
+            result = parse_trade_instruction(
+                &instruction_data,
+                input_accounts,
+                &post_token_balances,
+                accounts,
+            );
         }
         _ => {}
     }

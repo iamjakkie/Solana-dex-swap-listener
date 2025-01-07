@@ -1,8 +1,14 @@
-use solana_sdk::bs58;
-use solana_transaction_status::{EncodedConfirmedBlock, EncodedTransactionWithStatusMeta, UiInnerInstructions};
 use anyhow::Result;
+use solana_sdk::bs58;
+use solana_transaction_status::{
+    EncodedConfirmedBlock, EncodedTransactionWithStatusMeta, UiInnerInstructions,
+};
 
-use crate::{models::{TokenBalance, TradeData, UiTokenAmount}, trade_parser::get_trade_instruction, utils::{convert_to_date, get_amt, get_mint, get_signer_balance_change}};
+use crate::{
+    models::{TokenBalance, TradeData, UiTokenAmount},
+    trade_parser::get_trade_instruction,
+    utils::{convert_to_date, get_amt, get_mint, get_signer_balance_change},
+};
 
 const RAYDIUM_PROGRAM_ID: &str = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
 
@@ -37,7 +43,9 @@ pub async fn process_tx(
 
     let pre_balances = trx_meta.pre_balances;
     let post_balances = trx_meta.post_balances;
-    let pre_token_balances = trx_meta.pre_token_balances.expect("Pre token balances not found");
+    let pre_token_balances = trx_meta
+        .pre_token_balances
+        .expect("Pre token balances not found");
     // convert to Vec<TokenBalance>
     let mut pre_token_balances_vec: Vec<TokenBalance> = vec![];
     for (idx, balance) in pre_token_balances.iter().enumerate() {
@@ -56,7 +64,9 @@ pub async fn process_tx(
         pre_token_balances_vec.push(token_balance);
     }
 
-    let post_token_balances = trx_meta.post_token_balances.expect("Post token balances not found");
+    let post_token_balances = trx_meta
+        .post_token_balances
+        .expect("Post token balances not found");
     let mut post_token_balances_vec: Vec<TokenBalance> = vec![];
     for (idx, balance) in post_token_balances.iter().enumerate() {
         let token_balance = TokenBalance {
@@ -77,9 +87,8 @@ pub async fn process_tx(
     let mut trades = vec![];
 
     for (idx, inst) in msg.instructions.into_iter().enumerate() {
-        
         let trx_meta_inner = trx_meta.inner_instructions.clone().unwrap_or(vec![]);
-        
+
         let first_instruction = trx_meta_inner.first();
 
         let mut first_instruction_ok: &UiInnerInstructions;
@@ -90,8 +99,7 @@ pub async fn process_tx(
         } else {
             first_instruction_ok = first_instruction.unwrap();
         }
-        
-        
+
         let inner_instructions = first_instruction_ok.clone().instructions;
 
         // println!("Instruction: {:?}", inst);
@@ -123,28 +131,28 @@ pub async fn process_tx(
         //     instructions,
         // };
         // println!("Inner Instructions: {:?}", inner_instructions);
-            // let inner_program = &accounts[inner_inst as usize];
-            // let inner_accounts = inner_inst.accounts.clone();
-            // let inner_data = inner_inst.data.clone();
-            // let inner_stack_height = inner_inst.stack_height.clone();
+        // let inner_program = &accounts[inner_inst as usize];
+        // let inner_accounts = inner_inst.accounts.clone();
+        // let inner_data = inner_inst.data.clone();
+        // let inner_stack_height = inner_inst.stack_height.clone();
 
-            // let inner_instruction = InnerInstruction {
-            //     program_id_index: inner_inst.program_id_index,
-            //     accounts: inner_accounts,
-            //     data: inner_data,
-            //     stack_height: inner_stack_height,
-            // };
+        // let inner_instruction = InnerInstruction {
+        //     program_id_index: inner_inst.program_id_index,
+        //     accounts: inner_accounts,
+        //     data: inner_data,
+        //     stack_height: inner_stack_height,
+        // };
 
-            // let inner_instructions = InnerInstructions {
-            //     index: first_instruction.index,
-            //     instructions: vec![inner_instruction],
-            // };
+        // let inner_instructions = InnerInstructions {
+        //     index: first_instruction.index,
+        //     instructions: vec![inner_instruction],
+        // };
 
-            // inner_instruction_vec.push(inner_instructions);
+        // inner_instruction_vec.push(inner_instructions);
         // }
 
         let program = &accounts[inst.program_id_index as usize];
-        
+
         if program != RAYDIUM_PROGRAM_ID {
             continue;
         }
@@ -165,7 +173,7 @@ pub async fn process_tx(
             &"".to_string(),
             false,
             &inner_instructions,
-            0 as u32
+            0 as u32,
         );
 
         if trade_data.is_some() {
@@ -188,13 +196,15 @@ pub async fn process_tx(
                     &post_token_balances_vec,
                     &accounts,
                     td_address.clone(),
-                ).unwrap(),
+                )
+                .unwrap(),
                 quote_mint: get_mint(
                     &td.vault_b,
                     &post_token_balances_vec,
                     &accounts,
                     "".to_string(),
-                ).unwrap(),
+                )
+                .unwrap(),
                 base_amount: get_amt(
                     &td.vault_a,
                     0 as u32,
@@ -224,10 +234,7 @@ pub async fn process_tx(
                 outer_program: td_address.clone(),
                 inner_program: "".to_string(),
                 txn_fee_lamports: trx_meta.fee,
-                signer_lamports_change: get_signer_balance_change(
-                    &pre_balances,
-                    &post_balances,
-                ),
+                signer_lamports_change: get_signer_balance_change(&pre_balances, &post_balances),
             };
 
             trades.push(trade);
@@ -318,8 +325,6 @@ pub async fn process_tx(
 
         //                     let inner_td_name = inner_td.name;
         //                     let inner_td_dapp_address = inner_td.dapp_address;
-
-                            
 
         //                     data.push(TradeData {
         //                         block_date: convert_to_date(timestamp),
@@ -446,8 +451,7 @@ pub async fn process_tx(
         //                 }
         //             },
         //         )
-        //     });            
-        
+        //     });
     }
     Some(trades)
 }

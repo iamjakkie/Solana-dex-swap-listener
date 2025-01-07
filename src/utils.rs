@@ -1,15 +1,15 @@
+use crate::global::RPC_CLIENT;
 use crate::models::{MarketDataStruct, TokenBalance, TradeData, Transfer};
 use borsh::BorshDeserialize;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use csv::WriterBuilder;
-use solana_sdk::{bs58, inner_instruction};
 use solana_sdk::program_pack::Pack;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::{bs58, inner_instruction};
 use solana_transaction_status::{UiInnerInstructions, UiInstruction};
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::str::FromStr;
-use chrono::{DateTime, NaiveDateTime, Utc};
-use crate::global::RPC_CLIENT;
 
 pub fn get_mint(
     address: &String,
@@ -44,7 +44,6 @@ pub fn get_mint(
             Some(result)
         }
     }
-    
 }
 
 pub fn get_amm_data(amm_address: &String) {
@@ -208,7 +207,9 @@ pub fn get_token_transfer(
                 {
                     // println!("Inner Program: {:?}", inner_program);
                     // println!("Data: {:?}", inner_inst.data.clone().into_bytes());
-                    let data = bs58::decode(inner_inst.data.clone()).into_vec().expect("Error decoding data");
+                    let data = bs58::decode(inner_inst.data.clone())
+                        .into_vec()
+                        .expect("Error decoding data");
                     let (discriminator_bytes, rest) = data.split_at(1);
                     let discriminator: u8 = u8::from(discriminator_bytes[0]);
 
@@ -319,7 +320,10 @@ pub fn get_token_22_transfer(
                     .as_str()
                     .eq("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
                 {
-                    let data = bs58::decode(inner_inst.data.clone()).into_vec().expect("Error decoding data");                    let (discriminator_bytes, rest) = data.split_at(1);
+                    let data = bs58::decode(inner_inst.data.clone())
+                        .into_vec()
+                        .expect("Error decoding data");
+                    let (discriminator_bytes, rest) = data.split_at(1);
                     let discriminator: u8 = u8::from(discriminator_bytes[0]);
 
                     match discriminator {
@@ -390,7 +394,6 @@ pub fn get_token_22_transfer(
     result
 }
 
-
 pub fn prepare_input_accounts(account_indices: &Vec<u8>, accounts: &Vec<String>) -> Vec<String> {
     let mut instruction_accounts: Vec<String> = vec![];
     for (index, &el) in account_indices.iter().enumerate() {
@@ -432,7 +435,10 @@ fn get_system_program_transfer(
                     .eq("11111111111111111111111111111111")
                 {
                     // decode hex
-                    let data = bs58::decode(inner_inst.data.clone()).into_vec().expect("Error decoding data");                    let (discriminator_bytes, rest) = data.split_at(4);
+                    let data = bs58::decode(inner_inst.data.clone())
+                        .into_vec()
+                        .expect("Error decoding data");
+                    let (discriminator_bytes, rest) = data.split_at(4);
 
                     let disc_bytes_arr: [u8; 4] = discriminator_bytes.to_vec().try_into().unwrap();
                     let discriminator: u32 = u32::from_le_bytes(disc_bytes_arr);
@@ -487,22 +493,20 @@ fn get_system_program_transfer(
 
 pub fn save_to_csv(data: Vec<TradeData>) {
     let file_path = "output.csv";
-    
+
     // Check if file already exists
     let file_exists = Path::new(file_path).exists();
-    
+
     // Open the file in append mode
     let file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(file_path)
         .expect("Failed to open file");
-    
+
     // Create a CSV writer that won't automatically write headers
-    let mut wtr = WriterBuilder::new()
-        .has_headers(false)
-        .from_writer(file);
-    
+    let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file);
+
     // If the file didn't exist, write the header first
     if !file_exists {
         wtr.write_record(&[
@@ -525,7 +529,7 @@ pub fn save_to_csv(data: Vec<TradeData>) {
         ])
         .expect("Failed to write header");
     }
-    
+
     // Append the new data
     for trade in data {
         wtr.write_record(&[
@@ -548,7 +552,7 @@ pub fn save_to_csv(data: Vec<TradeData>) {
         ])
         .expect("Failed to write record");
     }
-    
+
     // Flush to ensure everything is written to disk
     wtr.flush().expect("Failed to flush");
 }

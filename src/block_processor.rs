@@ -1,10 +1,13 @@
 use std::os::unix::process;
 
-use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions};
-use crate::{models::{TokenBalance, TradeData, UiTokenAmount}, tx_processor::process_tx, utils::{convert_to_date, get_amt, get_mint, get_signer_balance_change, save_to_csv}};
-use solana_sdk::{bs58, commitment_config::CommitmentConfig};
 use crate::trade_parser::get_trade_instruction;
-
+use crate::{
+    models::{TokenBalance, TradeData, UiTokenAmount},
+    tx_processor::process_tx,
+    utils::{convert_to_date, get_amt, get_mint, get_signer_balance_change, save_to_csv},
+};
+use solana_sdk::{bs58, commitment_config::CommitmentConfig};
+use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions};
 
 pub async fn process_block(block: EncodedConfirmedBlock) {
     let timestamp = block.block_time.expect("Block time not found");
@@ -21,6 +24,6 @@ pub async fn process_block(block: EncodedConfirmedBlock) {
     }
 
     save_to_csv(data);
-    // 43 
-    // 
+    // 43
+    //
 }
