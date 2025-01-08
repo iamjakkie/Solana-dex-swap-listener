@@ -1,11 +1,13 @@
 use anyhow::Result;
+use borsh::BorshDeserialize;
 use solana_sdk::bs58;
 use solana_transaction_status::{
-    EncodedConfirmedBlock, EncodedTransactionWithStatusMeta, UiInnerInstructions,
+    EncodedConfirmedBlock, EncodedTransactionWithStatusMeta, UiInnerInstructions, UiInstruction, UiParsedInstruction
 };
+use spl_token::instruction::TokenInstruction;
 
 use crate::{
-    models::{TokenBalance, TradeData, UiTokenAmount},
+    models::{PoolData, TokenBalance, TradeData, UiTokenAmount},
     trade_parser::get_trade_instruction,
     utils::{convert_to_date, get_amt, get_mint, get_signer_balance_change},
 };
@@ -35,6 +37,7 @@ pub async fn process_tx(
         _ => return None,
     };
 
+
     let accounts = msg.account_keys;
 
     if !accounts.contains(&RAYDIUM_PROGRAM_ID.to_string()) {
@@ -51,6 +54,7 @@ pub async fn process_tx(
     for (idx, balance) in pre_token_balances.iter().enumerate() {
         let token_balance = TokenBalance {
             account_index: idx as u32,
+            address: accounts.get(balance.account_index as usize).unwrap().to_string(),
             mint: balance.mint.clone(),
             ui_token_amount: UiTokenAmount {
                 ui_amount: balance.ui_token_amount.ui_amount.unwrap_or(0.0),
@@ -71,6 +75,7 @@ pub async fn process_tx(
     for (idx, balance) in post_token_balances.iter().enumerate() {
         let token_balance = TokenBalance {
             account_index: idx as u32,
+            address: accounts.get(balance.account_index as usize).unwrap().to_string(),
             mint: balance.mint.clone(),
             ui_token_amount: UiTokenAmount {
                 ui_amount: balance.ui_token_amount.ui_amount.unwrap_or(0.0),
@@ -87,9 +92,11 @@ pub async fn process_tx(
     let mut trades = vec![];
 
     for (idx, inst) in msg.instructions.into_iter().enumerate() {
+
         let trx_meta_inner = trx_meta.inner_instructions.clone().unwrap_or(vec![]);
 
         let first_instruction = trx_meta_inner.first();
+
 
         let mut first_instruction_ok: &UiInnerInstructions;
 
@@ -100,11 +107,8 @@ pub async fn process_tx(
             first_instruction_ok = first_instruction.unwrap();
         }
 
-        let inner_instructions = first_instruction_ok.clone().instructions;
 
-        // println!("Instruction: {:?}", inst);
-        // println!("Inner Instructions: {:?}", trx_meta_inner);
-        // println!("First Instruction: {:?}", first_instruction);
+        let inner_instructions = first_instruction_ok.clone().instructions;
 
         // let mut instructions = Vec::<InnerInstruction>::new();
         // let first_instruction_index = first_instruction.index as u32;
@@ -157,8 +161,27 @@ pub async fn process_tx(
             continue;
         }
 
+
+
         // decode data using base58
         let decoded_data = bs58::decode(inst.data.clone()).into_vec().unwrap();
+
+        println!("Decoded data: {:?}", decoded_data);
+
+        let pool_data = PoolData::try_from_slice(&decoded_data);
+
+        println!("Pool Data: {:?}", pool_data);
+
+        let base_add = &accounts.get(inst.accounts[5] as usize);
+        let quote_add = &accounts.get(inst.accounts[6] as usize);
+
+        println!("Base Add: {:?}", base_add);
+        println!("Quote Add: {:?}", quote_add);
+
+        println!("Pre token balances: {:?}", pre_token_balances_vec);
+
+        println!("Post token balances: {:?}", post_token_balances_vec);
+
 
         // print signature
         // println!("Signature: {:?}", ui.signatures[0]);
@@ -183,6 +206,8 @@ pub async fn process_tx(
             let td_name = td.name;
             let td_address = td.dapp_address;
 
+            
+
             let trade = TradeData {
                 block_date: convert_to_date(timestamp),
                 tx_id: bs58::encode(&ui.signatures[0]).into_string(),
@@ -191,20 +216,22 @@ pub async fn process_tx(
                 signature: ui.signatures[0].clone(),
                 signer: accounts.get(0).unwrap().to_string(),
                 pool_address: td.amm,
-                base_mint: get_mint(
-                    &td.vault_a,
-                    &post_token_balances_vec,
-                    &accounts,
-                    td_address.clone(),
-                )
-                .unwrap(),
-                quote_mint: get_mint(
-                    &td.vault_b,
-                    &post_token_balances_vec,
-                    &accounts,
-                    "".to_string(),
-                )
-                .unwrap(),
+                base_mint: base_add.unwrap().to_string(),
+                quote_mint: quote_add.unwrap().to_string(),
+                // base_mint: get_mint(
+                //     &td.vault_a,
+                //     &post_token_balances_vec,
+                //     &accounts,
+                //     td_address.clone(),
+                // )
+                // .unwrap(),
+                // quote_mint: get_mint(
+                //     &td.vault_b,
+                //     &post_token_balances_vec,
+                //     &accounts,
+                //     "".to_string(),
+                // )
+                // .unwrap(),
                 base_amount: get_amt(
                     &td.vault_a,
                     0 as u32,
