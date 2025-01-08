@@ -34,6 +34,7 @@ pub struct UiTokenAmount {
 #[derive(Clone, PartialEq, Debug)]
 pub struct TokenBalance {
     pub account_index: u32,
+    pub address: String,
     pub mint: String,
     pub ui_token_amount: UiTokenAmount,
     pub owner: String,
@@ -89,6 +90,9 @@ pub struct Transfer {
     pub amount: u64,
 }
 
+
+// TODO: This works but requires 1 extra call, the sama data can be parsed 
+// out of the inner intructions/instructions from Raydium
 #[derive(Debug, BorshDeserialize, BorshSerialize)]
 pub struct MarketDataStruct {
     pub status: u64,
@@ -135,19 +139,77 @@ pub struct MarketDataStruct {
     // Each publicKey => 32 bytes
     pub base_vault: Pubkey,
     pub quote_vault: Pubkey,
-    pub base_mint: [u8; 32],
-    pub quote_mint: [u8; 32],
-    pub lp_mint: [u8; 32],
-    pub open_orders: [u8; 32],
-    pub market_id: [u8; 32],
-    pub market_program_id: [u8; 32],
-    pub target_orders: [u8; 32],
-    pub withdraw_queue: [u8; 32],
-    pub lp_vault: [u8; 32],
-    pub owner: [u8; 32],
+    pub base_mint: Pubkey,
+    pub quote_mint: Pubkey,
+    pub lp_mint: Pubkey,
+    pub open_orders: Pubkey,
+    pub market_id: Pubkey,
+    pub market_program_id: Pubkey,
+    pub target_orders: Pubkey,
+    pub withdraw_queue: Pubkey,
+    pub lp_vault: Pubkey,
+    pub owner: Pubkey,
 
     pub lp_reserve: u64,
 
     // 3 * u64 for padding
     pub padding: [u64; 3],
+}
+
+
+#[derive(Debug, BorshDeserialize, BorshSerialize)]
+pub struct PoolData {
+    /// #1 - Token Program
+    pub token_program: Pubkey,
+
+    /// #2 - Amm
+    pub amm: Pubkey,
+
+    /// #3 - Amm Authority
+    pub amm_authority: Pubkey,
+
+    /// #4 - Amm Open Orders
+    pub amm_open_orders: Pubkey,
+
+    /// #5 - Amm Target Orders
+    pub amm_target_orders: Pubkey,
+
+    /// #6 - Pool Coin Token Account
+    pub pool_coin_token_account: Pubkey,
+
+    /// #7 - Pool Pc Token Account
+    pub pool_pc_token_account: Pubkey,
+
+    /// #8 - Serum Program
+    pub serum_program: Pubkey,
+
+    /// #9 - Serum Market
+    pub serum_market: Pubkey,
+
+    /// #10 - Serum Bids
+    pub serum_bids: Pubkey,
+
+    /// #11 - Serum Asks
+    pub serum_asks: Pubkey,
+
+    /// #12 - Serum Event Queue
+    pub serum_event_queue: Pubkey,
+
+    /// #13 - Serum Coin Vault Account
+    pub serum_coin_vault_account: Pubkey,
+
+    /// #14 - Serum Pc Vault Account
+    pub serum_pc_vault_account: Pubkey,
+
+    /// #15 - Serum Vault Signer
+    pub serum_vault_signer: Pubkey,
+
+    /// #16 - User Source Token Account
+    pub user_source_token_account: Pubkey,
+
+    /// #17 - User Destination Token Account
+    pub user_destination_token_account: Pubkey,
+
+    /// #18 - User Source Owner
+    pub user_source_owner: Pubkey,
 }
