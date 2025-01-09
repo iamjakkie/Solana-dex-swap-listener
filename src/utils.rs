@@ -131,10 +131,8 @@ pub fn get_amt(
 
     let mint = get_mint(address, post_token_balances).unwrap();
 
-    println!("Mint: {:?}", mint);
 
     if mint == "So11111111111111111111111111111111111111112" {
-        println!("Solana Transfer");
         // get solana balance change
         return (get_signer_balance_change(&pre_balances, &post_balances) as f64) / (u64::pow(10, 9)) as f64;
     }
@@ -150,8 +148,6 @@ pub fn get_amt(
         post_balances.clone(),
     );
 
-    println!("Source Transfer Amount: {:?}", source_transfer_amt);
-
     let destination_transfer_amt = get_token_transfer(
         address,
         input_inner_idx,
@@ -162,8 +158,6 @@ pub fn get_amt(
         pre_balances.clone(),
         post_balances.clone(),
     );
-
-    println!("Destination Transfer Amount: {:?}", destination_transfer_amt);
 
     if source_transfer_amt != 0.0 {
         result = source_transfer_amt;
@@ -178,7 +172,6 @@ pub fn get_amt(
             .filter(|token_balance| token_balance.address == *address)
             .for_each(|token_balance: &TokenBalance| {
                 let decimals = token_balance.ui_token_amount.clone().decimals;
-                println!("Decimals: {:?}", decimals);
                 result = result / (u64::pow(10, decimals)) as f64;
             });
     }
