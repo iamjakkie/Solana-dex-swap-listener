@@ -129,10 +129,14 @@ pub fn get_amt(
 ) -> f64 {
     let mut result: f64 = 0.0;
 
-    if address == "So11111111111111111111111111111111111111112" {
+    let mint = get_mint(address, post_token_balances).unwrap();
+
+    println!("Mint: {:?}", mint);
+
+    if mint == "So11111111111111111111111111111111111111112" {
         println!("Solana Transfer");
         // get solana balance change
-        return get_signer_balance_change(&pre_balances, &post_balances) as f64;
+        return (get_signer_balance_change(&pre_balances, &post_balances) as f64) / (u64::pow(10, 9)) as f64;
     }
 
     let source_transfer_amt = get_token_transfer(
