@@ -1,13 +1,16 @@
+use solana_sdk::pubkey::Pubkey;
 use solana_transaction_status::UiInstruction;
 
 use crate::models::{TokenBalance, TradeInstruction};
-use crate::utils::{get_vault_a, get_vault_b, prepare_input_accounts};
+use crate::utils::{prepare_input_accounts};
 
 pub fn parse_trade_instruction(
     bytes_stream: &Vec<u8>,
     input_accounts: Vec<String>,
     post_token_balances: &Vec<TokenBalance>,
     accounts: &Vec<String>,
+    base_address: &String,
+    quote_address: &String,
 ) -> Option<TradeInstruction> {
     let (disc_bytes, rest) = bytes_stream.split_at(1);
     let discriminator: u8 = u8::from(disc_bytes[0]);
@@ -22,8 +25,8 @@ pub fn parse_trade_instruction(
                 dapp_address: String::from("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"),
                 name: String::from("SwapBaseIn"),
                 amm: input_accounts.get(1).unwrap().to_string(),
-                vault_a: get_vault_a(&input_accounts, post_token_balances, accounts),
-                vault_b: get_vault_b(&input_accounts, post_token_balances, accounts),
+                vault_a: base_address.to_string(),
+                vault_b: quote_address.to_string(),
                 ..Default::default()
             });
         }
@@ -32,8 +35,8 @@ pub fn parse_trade_instruction(
                 dapp_address: String::from("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"),
                 name: String::from("SwapBaseOut"),
                 amm: input_accounts.get(1).unwrap().to_string(),
-                vault_a: get_vault_a(&input_accounts, post_token_balances, accounts),
-                vault_b: get_vault_b(&input_accounts, post_token_balances, accounts),
+                vault_a: base_address.to_string(),
+                vault_b: quote_address.to_string(),
                 ..Default::default()
             });
         }
@@ -54,6 +57,8 @@ pub fn get_trade_instruction(
     is_inner: bool,
     inner_instructions: &Vec<UiInstruction>,
     input_inner_idx: u32,
+    base_address: &String,
+    quote_address: &String,
 ) -> Option<TradeInstruction> {
     let input_accounts = prepare_input_accounts(account_indices, accounts);
 
@@ -65,6 +70,8 @@ pub fn get_trade_instruction(
                 input_accounts,
                 &post_token_balances,
                 accounts,
+                base_address,
+                quote_address,
             );
         }
         _ => {}

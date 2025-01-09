@@ -11,39 +11,48 @@ use std::fs::OpenOptions;
 use std::path::Path;
 use std::str::FromStr;
 
+// pub fn get_mint(
+//     address: &String,
+//     token_balances: &Vec<TokenBalance>,
+//     accounts: &Vec<String>,
+//     dapp_address: String,
+// ) -> Option<String> {
+//     if dapp_address.eq("MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG")
+//         || dapp_address.eq("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+//     {
+//         return Some("So11111111111111111111111111111111111111112".to_string());
+//     }
+//     // get spl token address for token account (address)
+//     let add = Pubkey::from_str(address).unwrap();
+//     let rpc_client = RPC_CLIENT.clone();
+//     let acc_data = rpc_client.get_account(&add).unwrap();
+//     let token_data = spl_token::state::Account::unpack(acc_data.data.as_slice());
+//     match token_data {
+//         Ok(token_data) => {
+//             let mint = token_data.mint.to_string();
+//             Some(mint)
+//         }
+//         Err(_) => {
+//             let index = accounts.iter().position(|r| r == address).unwrap();
+//             let mut result: String = String::new();
+//             token_balances
+//                 .iter()
+//                 .filter(|token_balance| token_balance.account_index == index as u32)
+//                 .for_each(|token_balance| {
+//                     result = token_balance.mint.clone();
+//                 });
+//             Some(result)
+//         }
+//     }
+// }
+
 pub fn get_mint(
     address: &String,
     token_balances: &Vec<TokenBalance>,
-    accounts: &Vec<String>,
-    dapp_address: String,
 ) -> Option<String> {
-    if dapp_address.eq("MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG")
-        || dapp_address.eq("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
-    {
-        return Some("So11111111111111111111111111111111111111112".to_string());
-    }
-    // get spl token address for token account (address)
-    let add = Pubkey::from_str(address).unwrap();
-    let rpc_client = RPC_CLIENT.clone();
-    let acc_data = rpc_client.get_account(&add).unwrap();
-    let token_data = spl_token::state::Account::unpack(acc_data.data.as_slice());
-    match token_data {
-        Ok(token_data) => {
-            let mint = token_data.mint.to_string();
-            Some(mint)
-        }
-        Err(_) => {
-            let index = accounts.iter().position(|r| r == address).unwrap();
-            let mut result: String = String::new();
-            token_balances
-                .iter()
-                .filter(|token_balance| token_balance.account_index == index as u32)
-                .for_each(|token_balance| {
-                    result = token_balance.mint.clone();
-                });
-            Some(result)
-        }
-    }
+    let index = token_balances.iter().position(|r| r.address == *address).unwrap();
+    let mint = token_balances.get(index).unwrap().mint.clone();
+    Some(mint)
 }
 
 pub fn get_amm_data(amm_address: &String) {
@@ -51,51 +60,52 @@ pub fn get_amm_data(amm_address: &String) {
     let rpc_client = RPC_CLIENT.clone();
     let acc_data = rpc_client.get_account(&add).unwrap().data;
     let decoded_data = MarketDataStruct::try_from_slice(&acc_data).unwrap();
-    println!("Account Data: {:?}", decoded_data);
+    // println!("Account Data: {:?}", decoded_data);
 }
 
-pub fn get_vault_a(
-    input_accounts: &Vec<String>,
-    post_token_balances: &Vec<TokenBalance>,
-    accounts: &Vec<String>,
-) -> String {
-    let mut vault_a = input_accounts.get(4).unwrap().to_string();
-    let mint_a = get_mint(&vault_a, post_token_balances, accounts, "".to_string());
+// pub fn get_vault_a(
+//     input_accounts: &Vec<String>,
+//     post_token_balances: &Vec<TokenBalance>,
+//     accounts: &Vec<String>,
+// ) -> String {
+//     let mut vault_a = input_accounts.get(4).unwrap().to_string();
+//     let mint_a = get_mint(&vault_a, post_token_balances, accounts, "".to_string());
 
-    if mint_a.is_some() {
-        vault_a = input_accounts.get(5).unwrap().to_string();
-    }
+//     if mint_a.is_some() {
+//         vault_a = input_accounts.get(5).unwrap().to_string();
+//     }
 
-    return vault_a;
-}
+//     return vault_a;
+// }
 
-pub fn get_vault_b(
-    input_accounts: &Vec<String>,
-    post_token_balances: &Vec<TokenBalance>,
-    accounts: &Vec<String>,
-) -> String {
-    println!("Input Accounts: {:?}", input_accounts);
+// pub fn get_vault_b(
+//     input_accounts: &Vec<String>,
+//     post_token_balances: &Vec<TokenBalance>,
+//     accounts: &Vec<String>,
+// ) -> String {
+//     println!("Input Accounts: {:?}", input_accounts);
 
-    let mut vault_a_index = 4;
+//     let mut vault_a_index = 4;
 
-    let mut vault_a = input_accounts.get(4).unwrap().to_string();
-    let mint_a = get_mint(&vault_a, post_token_balances, accounts, "".to_string());
+//     let mut vault_a = input_accounts.get(4).unwrap().to_string();
+//     let mint_a = get_mint(&vault_a, post_token_balances, accounts, "".to_string());
 
-    if mint_a.is_some() {
-        vault_a_index += 1;
-        vault_a = input_accounts.get(vault_a_index).unwrap().to_string();
-    }
+//     if mint_a.is_some() {
+//         vault_a_index += 1;
+//         vault_a = input_accounts.get(vault_a_index).unwrap().to_string();
+//     }
 
-    let mut vault_b_index = vault_a_index + 1;
-    let mut vault_b = input_accounts.get(vault_b_index).unwrap().to_string();
+//     let mut vault_b_index = vault_a_index + 1;
+//     let mut vault_b = input_accounts.get(vault_b_index).unwrap().to_string();
 
-    if vault_a == vault_b {
-        vault_b_index += 1;
-        vault_b = input_accounts.get(vault_b_index).unwrap().to_string();
-    }
+//     if vault_a == vault_b {
+//         vault_b_index += 1;
+//         vault_b = input_accounts.get(vault_b_index).unwrap().to_string();
+//     }
 
-    return vault_b;
-}
+//     return vault_b;
+// }
+
 pub fn get_signer_balance_change(pre_balances: &Vec<u64>, post_balances: &Vec<u64>) -> i64 {
     return post_balances[0] as i64 - pre_balances[0] as i64;
 }
@@ -119,6 +129,12 @@ pub fn get_amt(
 ) -> f64 {
     let mut result: f64 = 0.0;
 
+    if address == "So11111111111111111111111111111111111111112" {
+        println!("Solana Transfer");
+        // get solana balance change
+        return get_signer_balance_change(&pre_balances, &post_balances) as f64;
+    }
+
     let source_transfer_amt = get_token_transfer(
         address,
         input_inner_idx,
@@ -129,6 +145,8 @@ pub fn get_amt(
         pre_balances.clone(),
         post_balances.clone(),
     );
+
+    println!("Source Transfer Amount: {:?}", source_transfer_amt);
 
     let destination_transfer_amt = get_token_transfer(
         address,
@@ -141,6 +159,8 @@ pub fn get_amt(
         post_balances.clone(),
     );
 
+    println!("Destination Transfer Amount: {:?}", destination_transfer_amt);
+
     if source_transfer_amt != 0.0 {
         result = source_transfer_amt;
     } else if destination_transfer_amt != 0.0 {
@@ -148,17 +168,18 @@ pub fn get_amt(
     }
 
     if result != 0.0 {
-        let index = accounts.iter().position(|r| r == address).unwrap();
+        // let index = accounts.iter().position(|r| r == address).unwrap();
         post_token_balances
             .iter()
-            .filter(|token_balance| token_balance.account_index == index as u32)
+            .filter(|token_balance| token_balance.address == *address)
             .for_each(|token_balance: &TokenBalance| {
                 let decimals = token_balance.ui_token_amount.clone().decimals;
+                println!("Decimals: {:?}", decimals);
                 result = result / (u64::pow(10, decimals)) as f64;
             });
     }
 
-    result
+    -result
 }
 
 pub fn get_token_transfer(

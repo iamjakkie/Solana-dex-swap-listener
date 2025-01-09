@@ -166,22 +166,10 @@ pub async fn process_tx(
         // decode data using base58
         let decoded_data = bs58::decode(inst.data.clone()).into_vec().unwrap();
 
-        println!("Decoded data: {:?}", decoded_data);
-
         let pool_data = PoolData::try_from_slice(&decoded_data);
 
-        println!("Pool Data: {:?}", pool_data);
-
-        let base_add = &accounts.get(inst.accounts[5] as usize);
-        let quote_add = &accounts.get(inst.accounts[6] as usize);
-
-        println!("Base Add: {:?}", base_add);
-        println!("Quote Add: {:?}", quote_add);
-
-        println!("Pre token balances: {:?}", pre_token_balances_vec);
-
-        println!("Post token balances: {:?}", post_token_balances_vec);
-
+        let base_add = &accounts.get(inst.accounts[5] as usize).expect("Base account not found");
+        let quote_add = &accounts.get(inst.accounts[6] as usize).expect("Quote account not found");
 
         // print signature
         // println!("Signature: {:?}", ui.signatures[0]);
@@ -197,6 +185,8 @@ pub async fn process_tx(
             false,
             &inner_instructions,
             0 as u32,
+            base_add,
+            quote_add,
         );
 
         if trade_data.is_some() {
@@ -216,8 +206,14 @@ pub async fn process_tx(
                 signature: ui.signatures[0].clone(),
                 signer: accounts.get(0).unwrap().to_string(),
                 pool_address: td.amm,
-                base_mint: base_add.unwrap().to_string(),
-                quote_mint: quote_add.unwrap().to_string(),
+                base_mint: get_mint(
+                    &td.vault_a,
+                    &post_token_balances_vec,
+                ).unwrap(),
+                quote_mint: get_mint(
+                    &td.vault_b,
+                    &post_token_balances_vec,
+                ).unwrap(),
                 // base_mint: get_mint(
                 //     &td.vault_a,
                 //     &post_token_balances_vec,
