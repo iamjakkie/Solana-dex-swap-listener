@@ -2,7 +2,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_transaction_status::UiInstruction;
 
 use crate::models::{TokenBalance, TradeInstruction};
-use crate::utils::{prepare_input_accounts};
+use crate::utils::prepare_input_accounts;
 
 pub fn parse_trade_instruction(
     bytes_stream: &Vec<u8>,
@@ -17,7 +17,7 @@ pub fn parse_trade_instruction(
 
     let mut result = None;
 
-    // println!("Discriminator: {:?}", discriminator);
+    println!("Discriminator: {:?}", discriminator);
 
     match discriminator {
         9 => {
@@ -61,7 +61,6 @@ pub fn get_trade_instruction(
     quote_address: &String,
 ) -> Option<TradeInstruction> {
     let input_accounts = prepare_input_accounts(account_indices, accounts);
-
     let mut result = None;
     match address.as_str() {
         "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" => {

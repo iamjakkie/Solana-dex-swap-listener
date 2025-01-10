@@ -2,7 +2,8 @@ use anyhow::Result;
 use borsh::BorshDeserialize;
 use solana_sdk::{address_lookup_table::program, bs58};
 use solana_transaction_status::{
-    EncodedConfirmedBlock, EncodedTransactionWithStatusMeta, UiInnerInstructions, UiInstruction, UiParsedInstruction
+    EncodedConfirmedBlock, EncodedTransactionWithStatusMeta, UiInnerInstructions, UiInstruction,
+    UiParsedInstruction,
 };
 use spl_token::instruction::TokenInstruction;
 
@@ -39,7 +40,6 @@ pub async fn process_tx(
         _ => return None,
     };
 
-
     let accounts = msg.account_keys;
 
     // if !accounts.contains(&RAYDIUM_PROGRAM_ID.to_string()) {
@@ -56,7 +56,10 @@ pub async fn process_tx(
     for (idx, balance) in pre_token_balances.iter().enumerate() {
         let token_balance = TokenBalance {
             account_index: idx as u32,
-            address: accounts.get(balance.account_index as usize).unwrap_or(&"".to_string()).to_string(),
+            address: accounts
+                .get(balance.account_index as usize)
+                .unwrap_or(&"".to_string())
+                .to_string(),
             mint: balance.mint.clone(),
             ui_token_amount: UiTokenAmount {
                 ui_amount: balance.ui_token_amount.ui_amount.unwrap_or(0.0),
@@ -77,7 +80,10 @@ pub async fn process_tx(
     for (idx, balance) in post_token_balances.iter().enumerate() {
         let token_balance = TokenBalance {
             account_index: idx as u32,
-            address: accounts.get(balance.account_index as usize).unwrap_or(&"".to_string()).to_string(),
+            address: accounts
+                .get(balance.account_index as usize)
+                .unwrap_or(&"".to_string())
+                .to_string(),
             mint: balance.mint.clone(),
             ui_token_amount: UiTokenAmount {
                 ui_amount: balance.ui_token_amount.ui_amount.unwrap_or(0.0),
@@ -94,11 +100,11 @@ pub async fn process_tx(
     let mut trades = vec![];
 
     for (idx, inst) in msg.instructions.into_iter().enumerate() {
-
         let trx_meta_inner = trx_meta.inner_instructions.clone().unwrap_or(vec![]);
 
-        let first_instruction = trx_meta_inner.first();
+        let fee = trx_meta.fee;
 
+        let first_instruction = trx_meta_inner.first();
 
         let mut first_instruction_ok: &UiInnerInstructions;
 
@@ -109,10 +115,7 @@ pub async fn process_tx(
             first_instruction_ok = first_instruction.unwrap();
         }
 
-
         let inner_instructions = first_instruction_ok.clone().instructions;
-
-
 
         // decode data using base58
         let decoded_data = bs58::decode(inst.data.clone()).into_vec().unwrap();
@@ -139,131 +142,265 @@ pub async fn process_tx(
 
         let program = &accounts[inst.program_id_index as usize];
 
-        let Some((base_add, quote_add)) = (match program.as_str() {
+        match program.as_str() {
             RAYDIUM_PROGRAM_ID => {
                 // standard raydium - srmq add
                 if let Some(pos) = inst
                     .accounts
                     .iter()
-                    .position(|&ix| all_addresses[ix as usize] == SERUM_ADD){
-                        let base_add = all_addresses.get(inst.accounts[pos - 2] as usize).expect("Base account not found");
-                        let quote_add = all_addresses.get(inst.accounts[pos - 1] as usize).expect("Quote account not found");
+                    .position(|&ix| all_addresses[ix as usize] == SERUM_ADD)
+                {
+                    // no extra checks, just do pos-2 and pos-1 as before
+                    let base_add = all_addresses
+                        .get(inst.accounts[pos - 2] as usize)
+                        .expect("Base account not found")
+                        .clone();
 
-                        Some((base_add, quote_add))
-                    } else {
-                        None
+                    let quote_add = all_addresses
+                        .get(inst.accounts[pos - 1] as usize)
+                        .expect("Quote account not found")
+                        .clone();
+
+                    if let Some(trade) = build_trade_data(
+                        program,
+                        &decoded_data,
+                        &inst.accounts,
+                        &accounts,
+                        &pre_token_balances_vec,
+                        &post_token_balances_vec,
+                        &base_add,
+                        &quote_add,
+                        &inner_instructions,
+                        timestamp,
+                        slot,
+                        &signature,
+                        idx,
+                        &trx_meta_inner,
+                        &pre_balances,
+                        &post_balances,
+                        fee,
+                    ) {
+                        trades.push(trade);
                     }
-
-            },
+                }
+            }
             JUPITER_PROGRAM_ID => {
-                first_instruction_ok.instructions.iter().find_map(|inner_inst| {
-                    if let UiInstruction::Compiled(compiled) = inner_inst {
-                        let program_add = all_addresses.get(compiled.program_id_index as usize)?;
-                        if program_add == RAYDIUM_PROGRAM_ID {
-                            let base_add = all_addresses.get(compiled.accounts[4] as usize).expect("Base account not found");
-                            let quote_add = all_addresses.get(compiled.accounts[5] as usize).expect("Quote account not found");
-
-                            return Some((base_add, quote_add));
+                // Gather all Raydium (base, quote) pairs within Jupiter instructions
+                let all_pairs: Vec<(String, String)> = first_instruction_ok
+                    .instructions
+                    .iter()
+                    .filter_map(|inner_inst| {
+                        if let UiInstruction::Compiled(compiled) = inner_inst {
+                            let program_add =
+                                all_addresses.get(compiled.program_id_index as usize)?;
+                            if program_add == RAYDIUM_PROGRAM_ID {
+                                // Hardcoded indices 4, 5, as before
+                                let base_add = all_addresses
+                                    .get(compiled.accounts[4] as usize)
+                                    .expect("Base account not found")
+                                    .clone();
+                                let quote_add = all_addresses
+                                    .get(compiled.accounts[5] as usize)
+                                    .expect("Quote account not found")
+                                    .clone();
+                                return Some((base_add, quote_add));
+                            }
                         }
+                        None
+                    })
+                    .collect();
+
+                println!("All Pairs: {:?}", all_pairs);
+
+                for (base_add, quote_add) in all_pairs {
+                    if let Some(trade) = build_trade_data(
+                        &RAYDIUM_PROGRAM_ID.to_string(),
+                        &decoded_data,
+                        &inst.accounts,
+                        &accounts,
+                        &pre_token_balances_vec,
+                        &post_token_balances_vec,
+                        &base_add,
+                        &quote_add,
+                        &inner_instructions,
+                        timestamp,
+                        slot,
+                        &signature,
+                        idx,
+                        &trx_meta_inner,
+                        &pre_balances,
+                        &post_balances,
+                        fee,
+                    ) {
+                        println!("Trade: {:?}", trade);
+                        trades.push(trade);
                     }
-                    None
-                })
-            },
-            _ => None,
-        }) else {
-            continue;
+                }
+            }
+
+            _ => {}
         };
 
-        println!("Signature: {:?}", ui.signatures[0]);
+        // println!("Signature: {:?}", ui.signatures[0]);
 
-        println!("Base: {:?}, Quote: {:?}", base_add, quote_add);
+        // println!("Base: {:?}, Quote: {:?}", base_add, quote_add);
 
+        // let trade_data = get_trade_instruction(
+        //     program,
+        //     &decoded_data,
+        //     &inst.accounts,
+        //     &accounts,
+        //     &pre_token_balances_vec,
+        //     &post_token_balances_vec,
+        //     &"".to_string(),
+        //     false,
+        //     &inner_instructions,
+        //     0 as u32,
+        //     &base_add,
+        //     &quote_add,
+        // );
 
-        let trade_data = get_trade_instruction(
-            program,
-            &decoded_data,
-            &inst.accounts,
-            &accounts,
-            &pre_token_balances_vec,
-            &post_token_balances_vec,
-            &"".to_string(),
-            false,
-            &inner_instructions,
-            0 as u32,
-            base_add,
-            quote_add,
-        );
+        // if trade_data.is_some() {
+        //     let td = trade_data.unwrap();
+        //     // println!("Trade Data: {:?}", td);
 
-        if trade_data.is_some() {
-            let td = trade_data.unwrap();
-            // println!("Trade Data: {:?}", td);
+        //     let td_name = td.name;
+        //     let td_address = td.dapp_address;
 
-            let td_name = td.name;
-            let td_address = td.dapp_address;
+        //     let trade = TradeData {
+        //         block_date: convert_to_date(timestamp),
+        //         tx_id: bs58::encode(&ui.signatures[0]).into_string(),
+        //         block_slot: slot,
+        //         block_time: timestamp,
+        //         signature: ui.signatures[0].clone(),
+        //         signer: accounts.get(0).unwrap().to_string(),
+        //         pool_address: td.amm,
+        //         base_mint: get_mint(&td.vault_a, &post_token_balances_vec).unwrap(),
+        //         quote_mint: get_mint(&td.vault_b, &post_token_balances_vec).unwrap(),
+        //         base_amount: get_amt(
+        //             &td.vault_a,
+        //             0 as u32,
+        //             &trx_meta_inner,
+        //             &accounts,
+        //             &post_token_balances_vec,
+        //             td_address.clone(),
+        //             pre_balances.clone(),
+        //             post_balances.clone(),
+        //         ),
+        //         quote_amount: get_amt(
+        //             &td.vault_b,
+        //             0 as u32,
+        //             &trx_meta_inner,
+        //             &accounts,
+        //             &post_token_balances_vec,
+        //             "".to_string(),
+        //             pre_balances.clone(),
+        //             post_balances.clone(),
+        //         ),
+        //         base_vault: td.vault_a,
+        //         quote_vault: td.vault_b,
+        //         is_inner_instruction: false,
+        //         instruction_index: idx as u32,
+        //         instruction_type: td_name.clone(),
+        //         inner_instruction_index: 0,
+        //         outer_program: td_address.clone(),
+        //         inner_program: "".to_string(),
+        //         txn_fee_lamports: trx_meta.fee,
+        //         signer_lamports_change: get_signer_balance_change(&pre_balances, &post_balances),
+        //     };
 
-            let trade = TradeData {
-                block_date: convert_to_date(timestamp),
-                tx_id: bs58::encode(&ui.signatures[0]).into_string(),
-                block_slot: slot,
-                block_time: timestamp,
-                signature: ui.signatures[0].clone(),
-                signer: accounts.get(0).unwrap().to_string(),
-                pool_address: td.amm,
-                base_mint: get_mint(
-                    &td.vault_a,
-                    &post_token_balances_vec,
-                ).unwrap(),
-                quote_mint: get_mint(
-                    &td.vault_b,
-                    &post_token_balances_vec,
-                ).unwrap(),
-                // base_mint: get_mint(
-                //     &td.vault_a,
-                //     &post_token_balances_vec,
-                //     &accounts,
-                //     td_address.clone(),
-                // )
-                // .unwrap(),
-                // quote_mint: get_mint(
-                //     &td.vault_b,
-                //     &post_token_balances_vec,
-                //     &accounts,
-                //     "".to_string(),
-                // )
-                // .unwrap(),
-                base_amount: get_amt(
-                    &td.vault_a,
-                    0 as u32,
-                    &trx_meta_inner,
-                    &accounts,
-                    &post_token_balances_vec,
-                    td_address.clone(),
-                    pre_balances.clone(),
-                    post_balances.clone(),
-                ),
-                quote_amount: get_amt(
-                    &td.vault_b,
-                    0 as u32,
-                    &trx_meta_inner,
-                    &accounts,
-                    &post_token_balances_vec,
-                    "".to_string(),
-                    pre_balances.clone(),
-                    post_balances.clone(),
-                ),
-                base_vault: td.vault_a,
-                quote_vault: td.vault_b,
-                is_inner_instruction: false,
-                instruction_index: idx as u32,
-                instruction_type: td_name.clone(),
-                inner_instruction_index: 0,
-                outer_program: td_address.clone(),
-                inner_program: "".to_string(),
-                txn_fee_lamports: trx_meta.fee,
-                signer_lamports_change: get_signer_balance_change(&pre_balances, &post_balances),
-            };
-
-            trades.push(trade);
+        //     trades.push(trade);
+        // }
     }
     Some(trades)
+}
+
+fn build_trade_data(
+    program: &String,
+    decoded_data: &Vec<u8>,
+    inst_accounts: &Vec<u8>,
+    accounts: &Vec<String>,
+    pre_token_balances_vec: &Vec<TokenBalance>,
+    post_token_balances_vec: &Vec<TokenBalance>,
+    base_add: &String,
+    quote_add: &String,
+    // Additional parameters from your snippet
+    inner_instructions: &Vec<UiInstruction>,
+    timestamp: i64,
+    slot: u64,
+    signature: &String,
+    idx: usize,
+    trx_meta_inner: &Vec<UiInnerInstructions>,
+    pre_balances: &Vec<u64>,
+    post_balances: &Vec<u64>,
+    fee: u64,
+) -> Option<TradeData> {
+    // println!()
+    let trade_data = get_trade_instruction(
+        program,
+        decoded_data,
+        inst_accounts,
+        accounts,
+        pre_token_balances_vec,
+        post_token_balances_vec,
+        &"".to_string(),
+        false,
+        inner_instructions,
+        0,
+        base_add,
+        quote_add,
+    );
+    println!("Trade Data: {:?}", trade_data);
+
+    // 2. If there's a return, build the TradeData struct
+    if let Some(td) = trade_data {
+        let td_name = td.name;
+        let td_address = td.dapp_address;
+
+        let trade = TradeData {
+            block_date: convert_to_date(timestamp),
+            tx_id: bs58::encode(signature).into_string(),
+            block_slot: slot,
+            block_time: timestamp,
+            signature: signature.to_string(),
+            signer: accounts.get(0).unwrap().to_string(),
+            pool_address: td.amm,
+            base_mint: get_mint(&td.vault_a, post_token_balances_vec).unwrap(),
+            quote_mint: get_mint(&td.vault_b, post_token_balances_vec).unwrap(),
+            base_amount: get_amt(
+                &td.vault_a,
+                0,
+                trx_meta_inner,
+                accounts,
+                post_token_balances_vec,
+                td_address.clone(),
+                pre_balances.clone(),
+                post_balances.clone(),
+            ),
+            quote_amount: get_amt(
+                &td.vault_b,
+                0,
+                trx_meta_inner,
+                accounts,
+                post_token_balances_vec,
+                "".to_string(),
+                pre_balances.clone(),
+                post_balances.clone(),
+            ),
+            base_vault: td.vault_a,
+            quote_vault: td.vault_b,
+            is_inner_instruction: false,
+            instruction_index: idx as u32,
+            instruction_type: td_name.clone(),
+            inner_instruction_index: 0,
+            outer_program: td_address.clone(),
+            inner_program: "".to_string(),
+            txn_fee_lamports: fee,
+            signer_lamports_change: get_signer_balance_change(pre_balances, post_balances),
+        };
+
+        Some(trade)
+    } else {
+        None
+    }
 }

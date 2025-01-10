@@ -14,6 +14,8 @@ pub async fn process_block(block: EncodedConfirmedBlock) {
     let slot = block.parent_slot;
     let mut data: Vec<TradeData> = vec![];
 
+    println!("Transactions: {}", block.transactions.len());
+
     for trx in block.transactions {
         match process_tx(trx, slot, timestamp).await {
             Some(trades) => {
@@ -22,6 +24,8 @@ pub async fn process_block(block: EncodedConfirmedBlock) {
             None => {}
         }
     }
+
+    println!("Length of data: {}", data.len());
 
     save_to_csv(data);
     // 43

@@ -46,13 +46,15 @@ use std::str::FromStr;
 //     }
 // }
 
-pub fn get_mint(
-    address: &String,
-    token_balances: &Vec<TokenBalance>,
-) -> Option<String> {
-    let index = token_balances.iter().position(|r| r.address == *address).unwrap();
-    let mint = token_balances.get(index).unwrap().mint.clone();
-    Some(mint)
+pub fn get_mint(address: &String, token_balances: &Vec<TokenBalance>) -> Option<String> {
+    let index = token_balances.iter().position(|r| r.address == *address);
+    match index {
+        None => None,
+        Some(index) => {
+            let mint = token_balances.get(index).unwrap().mint.clone();
+            Some(mint)
+        }
+    }
 }
 
 pub fn get_amm_data(amm_address: &String) {
@@ -131,10 +133,10 @@ pub fn get_amt(
 
     let mint = get_mint(address, post_token_balances).unwrap();
 
-
     if mint == "So11111111111111111111111111111111111111112" {
         // get solana balance change
-        return (get_signer_balance_change(&pre_balances, &post_balances) as f64) / (u64::pow(10, 9)) as f64;
+        return (get_signer_balance_change(&pre_balances, &post_balances) as f64)
+            / (u64::pow(10, 9)) as f64;
     }
 
     let source_transfer_amt = get_token_transfer(

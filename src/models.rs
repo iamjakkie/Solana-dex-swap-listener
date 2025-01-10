@@ -90,8 +90,7 @@ pub struct Transfer {
     pub amount: u64,
 }
 
-
-// TODO: This works but requires 1 extra call, the sama data can be parsed 
+// TODO: This works but requires 1 extra call, the sama data can be parsed
 // out of the inner intructions/instructions from Raydium
 #[derive(Debug, BorshDeserialize, BorshSerialize)]
 pub struct MarketDataStruct {
@@ -155,7 +154,6 @@ pub struct MarketDataStruct {
     // 3 * u64 for padding
     pub padding: [u64; 3],
 }
-
 
 #[derive(Debug, BorshDeserialize, BorshSerialize)]
 pub struct PoolData {
