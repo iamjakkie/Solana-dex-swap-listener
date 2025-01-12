@@ -17,8 +17,6 @@ pub fn parse_trade_instruction(
 
     let mut result = None;
 
-    println!("Discriminator: {:?}", discriminator);
-
     match discriminator {
         9 => {
             result = Some(TradeInstruction {

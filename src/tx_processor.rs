@@ -42,9 +42,19 @@ pub async fn process_tx(
 
     let accounts = msg.account_keys;
 
-    // if !accounts.contains(&RAYDIUM_PROGRAM_ID.to_string()) {
-    //     return None;
-    // }
+    let mut all_addresses = accounts.clone();
+
+    let loaded_addresses = trx_meta.loaded_addresses.clone();
+
+    if loaded_addresses.is_some() {
+        let loaded_addresses = loaded_addresses.unwrap();
+        loaded_addresses.writable.iter().for_each(|add| {
+            all_addresses.push(add.clone());
+        });
+        loaded_addresses.readonly.iter().for_each(|add| {
+            all_addresses.push(add.clone());
+        });
+    }
 
     let pre_balances = trx_meta.pre_balances;
     let post_balances = trx_meta.post_balances;
@@ -56,7 +66,7 @@ pub async fn process_tx(
     for (idx, balance) in pre_token_balances.iter().enumerate() {
         let token_balance = TokenBalance {
             account_index: idx as u32,
-            address: accounts
+            address: all_addresses
                 .get(balance.account_index as usize)
                 .unwrap_or(&"".to_string())
                 .to_string(),
@@ -80,7 +90,7 @@ pub async fn process_tx(
     for (idx, balance) in post_token_balances.iter().enumerate() {
         let token_balance = TokenBalance {
             account_index: idx as u32,
-            address: accounts
+            address: all_addresses
                 .get(balance.account_index as usize)
                 .unwrap_or(&"".to_string())
                 .to_string(),
@@ -101,48 +111,13 @@ pub async fn process_tx(
 
     for (idx, inst) in msg.instructions.into_iter().enumerate() {
         let trx_meta_inner = trx_meta.inner_instructions.clone().unwrap_or(vec![]);
-
         let fee = trx_meta.fee;
 
-        let first_instruction = trx_meta_inner.first();
-
-        let mut first_instruction_ok: &UiInnerInstructions;
-
-        if first_instruction.is_none() {
-            // println!("Signature: {:?}", ui.signatures[0]);
-            continue;
-        } else {
-            first_instruction_ok = first_instruction.unwrap();
-        }
-
-        let inner_instructions = first_instruction_ok.clone().instructions;
-
-        // decode data using base58
         let decoded_data = bs58::decode(inst.data.clone()).into_vec().unwrap();
 
-        // let pool_data = PoolData::try_from_slice(&decoded_data);
+        let main_program = all_addresses.get(inst.program_id_index as usize).unwrap();
 
-        // println!("Signature: {:?}", ui.signatures[0]);
-        // println!("Instruction accs: {:?}", inst.accounts);
-        // println!("Accounts: Len: {:?}, Entries: {:?}", accounts.len(), accounts);
-
-        let mut all_addresses = accounts.clone();
-
-        let loaded_addresses = trx_meta.loaded_addresses.clone();
-
-        if loaded_addresses.is_some() {
-            let loaded_addresses = loaded_addresses.unwrap();
-            loaded_addresses.writable.iter().for_each(|add| {
-                all_addresses.push(add.clone());
-            });
-            loaded_addresses.readonly.iter().for_each(|add| {
-                all_addresses.push(add.clone());
-            });
-        }
-
-        let program = &accounts[inst.program_id_index as usize];
-
-        match program.as_str() {
+        match main_program.as_str() {
             RAYDIUM_PROGRAM_ID => {
                 // standard raydium - srmq add
                 if let Some(pos) = inst
@@ -162,15 +137,18 @@ pub async fn process_tx(
                         .clone();
 
                     if let Some(trade) = build_trade_data(
-                        program,
+                        main_program,
                         &decoded_data,
                         &inst.accounts,
-                        &accounts,
+                        &all_addresses,
                         &pre_token_balances_vec,
                         &post_token_balances_vec,
                         &base_add,
                         &quote_add,
-                        &inner_instructions,
+                        &trx_meta_inner
+                            .first()
+                            .expect("Inner instructions not found")
+                            .instructions,
                         timestamp,
                         slot,
                         &signature,
@@ -186,60 +164,82 @@ pub async fn process_tx(
             }
             JUPITER_PROGRAM_ID => {
                 // Gather all Raydium (base, quote) pairs within Jupiter instructions
-                let all_pairs: Vec<(String, String)> = first_instruction_ok
-                    .instructions
-                    .iter()
-                    .filter_map(|inner_inst| {
-                        if let UiInstruction::Compiled(compiled) = inner_inst {
-                            let program_add =
-                                all_addresses.get(compiled.program_id_index as usize)?;
-                            if program_add == RAYDIUM_PROGRAM_ID {
-                                // Hardcoded indices 4, 5, as before
-                                let base_add = all_addresses
-                                    .get(compiled.accounts[4] as usize)
-                                    .expect("Base account not found")
-                                    .clone();
-                                let quote_add = all_addresses
-                                    .get(compiled.accounts[5] as usize)
-                                    .expect("Quote account not found")
-                                    .clone();
-                                return Some((base_add, quote_add));
-                            }
-                        }
-                        None
-                    })
-                    .collect();
+                trx_meta_inner.iter().for_each(|inner| {
 
-                println!("All Pairs: {:?}", all_pairs);
+                        let inner_instructions = inner.instructions.clone();
 
-                for (base_add, quote_add) in all_pairs {
-                    if let Some(trade) = build_trade_data(
-                        &RAYDIUM_PROGRAM_ID.to_string(),
-                        &decoded_data,
-                        &inst.accounts,
-                        &accounts,
-                        &pre_token_balances_vec,
-                        &post_token_balances_vec,
-                        &base_add,
-                        &quote_add,
-                        &inner_instructions,
-                        timestamp,
-                        slot,
-                        &signature,
-                        idx,
-                        &trx_meta_inner,
-                        &pre_balances,
-                        &post_balances,
-                        fee,
-                    ) {
-                        println!("Trade: {:?}", trade);
-                        trades.push(trade);
-                    }
+                        let jupiter_trades: Vec<TradeData> = inner_instructions
+                            .iter()
+                            .filter_map(|inner_inst| {
+                                if let UiInstruction::Compiled(compiled) = inner_inst {
+                                    let program_data =
+                                        bs58::decode(compiled.data.clone()).into_vec().unwrap();
+                                    let program_add =
+                                        all_addresses.get(compiled.program_id_index as usize)?;
+                                    if program_add == RAYDIUM_PROGRAM_ID {
+                                        // Hardcoded indices 4, 5, as before
+                                        let base_add = all_addresses
+                                            .get(compiled.accounts[4] as usize)
+                                            .expect("Base account not found")
+                                            .clone();
+                                        let quote_add = all_addresses
+                                            .get(compiled.accounts[5] as usize)
+                                            .expect("Quote account not found")
+                                            .clone();
+
+                                        return build_trade_data(
+                                            program_add,
+                                            &program_data,
+                                            &compiled.accounts,
+                                            &all_addresses,
+                                            &pre_token_balances_vec,
+                                            &post_token_balances_vec,
+                                            &base_add,
+                                            &quote_add,
+                                            &inner_instructions,
+                                            timestamp,
+                                            slot,
+                                            &signature,
+                                            idx,
+                                            &trx_meta_inner,
+                                            &pre_balances,
+                                            &post_balances,
+                                            fee,
+                                        );
+
+                                    }
+                                }
+                                None
+                            })
+                            .collect();
+                        trades.extend(jupiter_trades);
+                    });
                 }
-            }
 
             _ => {}
         };
+
+        // let first_instruction = trx_meta_inner.first();
+
+        // let mut first_instruction_ok: &UiInnerInstructions;
+
+        // if first_instruction.is_none() {
+        //     // println!("Signature: {:?}", ui.signatures[0]);
+        //     continue;
+        // } else {
+        //     first_instruction_ok = first_instruction.unwrap();
+        // }
+
+        // let inner_instructions = first_instruction_ok.clone().instructions;
+
+        // // decode data using base58
+        // let decoded_data = bs58::decode(inst.data.clone()).into_vec().unwrap();
+
+        // let pool_data = PoolData::try_from_slice(&decoded_data);
+
+        // println!("Signature: {:?}", ui.signatures[0]);
+        // println!("Instruction accs: {:?}", inst.accounts);
+        // println!("Accounts: Len: {:?}, Entries: {:?}", accounts.len(), accounts);
 
         // println!("Signature: {:?}", ui.signatures[0]);
 
@@ -350,7 +350,6 @@ fn build_trade_data(
         base_add,
         quote_add,
     );
-    println!("Trade Data: {:?}", trade_data);
 
     // 2. If there's a return, build the TradeData struct
     if let Some(td) = trade_data {
