@@ -1,6 +1,6 @@
 
 
-use std::{thread::current, time::{SystemTime, UNIX_EPOCH}};
+use std::{sync::{Arc, Mutex}, thread::current, time::{SystemTime, UNIX_EPOCH}};
 
 use crate::{
     models::{TokenBalance, TradeData, UiTokenAmount},
@@ -11,7 +11,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions};
 
-pub async fn process_block(block: EncodedConfirmedBlock) {
+pub async fn process_block(block: EncodedConfirmedBlock, publisher_clone: Arc<Mutex<zmq::Socket>>) {
     let timestamp = block.block_time.expect("Block time not found");
     let slot = block.parent_slot;
     let mut data: Vec<TradeData> = vec![];
@@ -66,7 +66,12 @@ pub async fn process_block(block: EncodedConfirmedBlock) {
 
 
 
-    save_to_csv(data);
+    // save_to_csv(data);
     // 43
     //
+
+    let json_str = serde_json::to_string(&data).unwrap();
+    let sock = publisher_clone.lock().unwrap();
+    sock.send("", zmq::SNDMORE).unwrap(); // optional topic
+    sock.send(json_str, 0).unwrap();
 }
