@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
 
 #[derive(Debug)]
@@ -55,7 +55,7 @@ pub struct InnerInstructions {
     pub instructions: Vec<InnerInstruction>,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Serialize)]
 pub struct TradeData {
     pub block_date: String,
     pub block_time: i64,

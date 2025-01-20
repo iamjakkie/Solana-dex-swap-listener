@@ -73,5 +73,5 @@ pub async fn process_block(block: EncodedConfirmedBlock, publisher_clone: Arc<Mu
     let json_str = serde_json::to_string(&data).unwrap();
     let sock = publisher_clone.lock().unwrap();
     sock.send("", zmq::SNDMORE).unwrap(); // optional topic
-    sock.send(json_str, 0).unwrap();
+    sock.send(&json_str, 0).unwrap();
 }
