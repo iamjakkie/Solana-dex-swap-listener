@@ -50,6 +50,7 @@ async fn main() {
 
     loop {
         let latest_slot = get_latest_slot().await.expect("Failed to get latest slot");
+        println!("Latest slot: {}", latest_slot);
         // let latest_slot = 312769636;
         // println!("Latest slot: {}", latest_slot);
 
@@ -81,6 +82,5 @@ async fn main() {
                 last_processed_slot = Some(block_num);
             }
         }
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     }
 }
