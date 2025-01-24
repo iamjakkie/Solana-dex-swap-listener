@@ -61,24 +61,27 @@ async fn main() {
 
         if start_slot <= latest_slot {
             for block_num in start_slot..=latest_slot {
-                let start_time = Instant::now();
-                let block = fetch_block_with_version(block_num).await;
-                match block {
-                    Ok(_) => {
-                        let block = block.unwrap();
-                        let publisher_clone = Arc::clone(&publisher_arc);
-                        println!("Processing block: {}", block_num);
-                        // spawn a new thread to process_block
-                        tokio::spawn(async move {
-                            process_block(block, publisher_clone).await;
-                        });
-                        let elapsed = start_time.elapsed();
-                        println!("Block {} processed in {:?}", block_num, elapsed);
+                let publisher_clone = Arc::clone(&publisher_arc.clone());
+                tokio::spawn(async move {
+                    let start_time = Instant::now();
+                    let block = fetch_block_with_version(block_num).await;
+                    match block {
+                        Ok(_) => {
+                            let block = block.unwrap();
+                            
+                            println!("Processing block: {}", block_num);
+                            // spawn a new thread to process_block
+                            // tokio::spawn(async move {
+                                process_block(block, publisher_clone).await;
+                            // });
+                            let elapsed = start_time.elapsed();
+                            println!("Block {} processed in {:?}", block_num, elapsed);
+                        }
+                        Err(e) => {
+                            println!("Error: {:?}", e);
+                        }
                     }
-                    Err(e) => {
-                        println!("Error: {:?}", e);
-                    }
-                }
+                });
                 last_processed_slot = Some(block_num);
             }
         }
