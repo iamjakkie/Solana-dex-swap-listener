@@ -10,7 +10,7 @@ use std::{sync::{Arc, Mutex}, time::Instant};
 
 use block_processor::process_block;
 use rpc_client::{fetch_block_with_version, get_latest_slot};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use zmq;
 
 
@@ -54,13 +54,19 @@ async fn main() {
         // let latest_slot = 312769636;
         // println!("Latest slot: {}", latest_slot);
 
-        let start_slot = match last_processed_slot {
-            Some(slot) => slot,
-            None => latest_slot,
-        };
+        // let start_slot = match last_processed_slot {
+        //     Some(slot) => slot,
+        //     None => latest_slot,
+        // };
 
+        let start_slot = 315186613;
+
+        let max_concurrent_tasks = 25; // Limit to 10 concurrent tasks
+        let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
+        // 31.01.2025 - 317661530 (23:59:59)
         if start_slot <= latest_slot {
-            for block_num in start_slot..=latest_slot {
+            for block_num in (start_slot..=317661530).rev() {
+                let permit = semaphore.clone().acquire_owned().await.unwrap(); // Acquire a permit
                 let publisher_clone = Arc::clone(&publisher_arc.clone());
                 tokio::spawn(async move {
                     let start_time = Instant::now();
@@ -81,8 +87,10 @@ async fn main() {
                             println!("Error: {:?}", e);
                         }
                     }
+                    drop(permit);
                 });
                 last_processed_slot = Some(block_num);
+                
             }
         }
     }

@@ -55,7 +55,7 @@ pub struct InnerInstructions {
     pub instructions: Vec<InnerInstruction>,
 }
 
-#[derive(Clone, PartialEq, Debug, Serialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct TradeData {
     pub block_date: String,
     pub block_time: i64,
@@ -210,4 +210,11 @@ pub struct PoolData {
 
     /// #18 - User Source Owner
     pub user_source_owner: Pubkey,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ZmqData {
+    pub slot: u64,
+    pub date: String,
+    pub data: Vec<TradeData>,
 }

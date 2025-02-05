@@ -7,7 +7,7 @@ use solana_sdk::program_pack::Pack;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::{bs58, inner_instruction};
 use solana_transaction_status::{UiInnerInstructions, UiInstruction};
-use std::fs::OpenOptions;
+use std::fs::{create_dir_all, OpenOptions};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -511,68 +511,32 @@ fn get_system_program_transfer(
     result
 }
 
-pub fn save_to_csv(data: Vec<TradeData>) {
-    let file_path = "output.csv";
-
-    // Check if file already exists
+pub async fn save_trades_to_csv(trades: &Vec<TradeData>, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = Path::new(file_path).parent() {
+        create_dir_all(parent)?;
+    }
+    
+    // Check if the file exists
     let file_exists = Path::new(file_path).exists();
 
     // Open the file in append mode
     let file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(file_path)
-        .expect("Failed to open file");
+        .open(file_path)?;
 
-    // Create a CSV writer that won't automatically write headers
-    let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file);
+    // Configure the writer
+    let mut writer = WriterBuilder::new()
+        .has_headers(!file_exists) // Only write headers if the file doesn't exist
+        .from_writer(file);
 
-    // If the file didn't exist, write the header first
-    if !file_exists {
-        wtr.write_record(&[
-            "Block Date",
-            "Block Time",
-            "Block Slot",
-            "Signature",
-            "Tx Id",
-            "Signer",
-            "Pool Address",
-            "Base Mint",
-            "Quote Mint",
-            "Base Vault",
-            "Quote Vault",
-            "Base Amount",
-            "Quote Amount",
-            "Is Inner Instruction",
-            "Instruction Index",
-            "Instruction Type",
-        ])
-        .expect("Failed to write header");
+    // Write each trade
+    for trade in trades {
+        writer.serialize(trade)?;
     }
 
-    // Append the new data
-    for trade in data {
-        wtr.write_record(&[
-            &trade.block_date,
-            &trade.block_time.to_string(),
-            &trade.block_slot.to_string(),
-            &trade.signature,
-            &trade.tx_id,
-            &trade.signer,
-            &trade.pool_address,
-            &trade.base_mint,
-            &trade.quote_mint,
-            &trade.base_vault,
-            &trade.quote_vault,
-            &trade.base_amount.to_string(),
-            &trade.quote_amount.to_string(),
-            &trade.is_inner_instruction.to_string(),
-            &trade.instruction_index.to_string(),
-            &trade.instruction_type,
-        ])
-        .expect("Failed to write record");
-    }
+    writer.flush()?; // Ensure all data is written to the file
+    println!("Saved {} trades to {}", trades.len(), file_path);
 
-    // Flush to ensure everything is written to disk
-    wtr.flush().expect("Failed to flush");
+    Ok(())
 }
