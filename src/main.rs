@@ -13,7 +13,37 @@ use rpc_client::{fetch_block_with_version, get_latest_slot};
 use tokio::sync::{RwLock, Semaphore};
 use zmq;
 
-async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about = "Trade Indexer with Configurable Options", long_about = None)]
+struct Cli {
+    /// Minimum block to index
+    #[arg(long, default_value_t = 0)]
+    min_block: u64,
+
+    /// Maximum block to index
+    #[arg(long, default_value_t = u64::MAX)]
+    max_block: u64,
+
+    // filepath for missing blocks
+    #[arg(long)]
+    missing_blocks: String,
+
+    /// Enable ZMQ publisher
+    #[arg(long)]
+    zmq: bool,
+
+    /// Enable CSV saving
+    #[arg(long)]
+    csv: bool,
+
+    /// Order of processing: asc or desc
+    #[arg(long, default_value = "asc")]
+    order: String,
+}
+
+async fn run_indexer(args: Cli) {
     let mut last_processed_slot: Option<u64> = None;
 
     loop {
@@ -67,18 +97,9 @@ fn bind_zmq(port: &str) -> zmq::Socket {
 #[tokio::main]
 async fn main() {
     
-    // let ctx = zmq::Context::new();
-    // let publisher = ctx.socket(zmq::PUB).expect("Failed to create ZMQ PUB socket");
-    // publisher.bind("tcp://*:5555").expect("Failed to bind publisher");
+    let args = Cli::parse();
+    println!("🔧 Running with args: {:?}", args);
 
-    // // 2. Wrap the publisher in an Arc<Mutex> so we can share it
-    // let publisher_arc = Arc::new(Mutex::new(publisher));
-    
-    run_indexer(publisher_arc).await;
-    // TODO: options
-    // 1. block limits - min, max
-    // 2. order
-    // 3. include csv save
-    // 4. include zmq
+    run_indexer(args).await;
     
 }
