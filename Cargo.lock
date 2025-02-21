@@ -903,6 +903,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "avro-rs",
+ "base64 0.22.1",
+ "bincode",
+ "borsh 1.5.3",
+ "chrono",
+ "clap",
+ "csv",
+ "futures 0.3.31",
+ "hex",
+ "lazy_static",
+ "prost",
+ "prost-types",
+ "regex",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "solana-client",
+ "solana-sdk",
+ "solana-transaction-status",
+ "spl-associated-token-account 6.0.0",
+ "spl-token 7.0.0",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-retry",
+ "tokio-stream",
+ "tonic",
+ "zmq",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2159,6 +2195,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "tokio",
+ "zmq",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2923,6 +2968,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
 dependencies = [
  "zerocopy 0.7.35",
+]
+
+[[package]]
+name = "preprocessor"
+version = "0.1.0"
+dependencies = [
+ "common",
 ]
 
 [[package]]
@@ -5817,42 +5869,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "token-indexer"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-stream",
- "avro-rs",
- "base64 0.22.1",
- "bincode",
- "borsh 1.5.3",
- "chrono",
- "clap",
- "csv",
- "futures 0.3.31",
- "hex",
- "lazy_static",
- "prost",
- "prost-types",
- "regex",
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "solana-client",
- "solana-sdk",
- "solana-transaction-status",
- "spl-associated-token-account 6.0.0",
- "spl-token 7.0.0",
- "thiserror 1.0.69",
- "tokio",
- "tokio-retry",
- "tokio-stream",
- "tonic",
- "zmq",
-]
 
 [[package]]
 name = "tokio"
