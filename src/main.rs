@@ -13,7 +13,37 @@ use rpc_client::{fetch_block_with_version, get_latest_slot};
 use tokio::sync::{RwLock, Semaphore};
 use zmq;
 
-async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about = "Trade Indexer with Configurable Options", long_about = None)]
+struct Cli {
+    /// Minimum block to index
+    #[arg(long, default_value_t = 0)]
+    min_block: u64,
+
+    /// Maximum block to index
+    #[arg(long, default_value_t = u64::MAX)]
+    max_block: u64,
+
+    // filepath for missing blocks
+    #[arg(long)]
+    missing_blocks: String,
+
+    /// Enable ZMQ publisher
+    #[arg(long)]
+    zmq: bool,
+
+    /// Enable CSV saving
+    #[arg(long)]
+    csv: bool,
+
+    /// Order of processing: asc or desc
+    #[arg(long, default_value = "asc")]
+    order: String,
+}
+
+async fn run_indexer(args: Cli) {
     let mut last_processed_slot: Option<u64> = None;
 
     loop {
