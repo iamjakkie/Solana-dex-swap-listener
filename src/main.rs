@@ -74,6 +74,7 @@ async fn main() {
     // // 2. Wrap the publisher in an Arc<Mutex> so we can share it
     // let publisher_arc = Arc::new(Mutex::new(publisher));
     
+    
     run_indexer(publisher_arc).await;
     // TODO: options
     // 1. block limits - min, max
