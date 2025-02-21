@@ -6,7 +6,10 @@ mod trade_parser;
 mod tx_processor;
 mod utils;
 
-use std::{sync::{Arc, Mutex}, time::Instant};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use block_processor::process_block;
 use rpc_client::{fetch_block_with_version, get_latest_slot};
@@ -43,7 +46,7 @@ struct Cli {
     order: String,
 }
 
-async fn run_indexer(args: Cli) {
+async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
     let mut last_processed_slot: Option<u64> = None;
 
     loop {
@@ -65,11 +68,11 @@ async fn run_indexer(args: Cli) {
                     match block {
                         Ok(_) => {
                             let block = block.unwrap();
-                            
+
                             println!("Processing block: {}", block_num);
                             // spawn a new thread to process_block
                             // tokio::spawn(async move {
-                                process_block(block, publisher_clone).await;
+                            process_block(block, publisher_clone).await;
                             // });
                             let elapsed = start_time.elapsed();
                             println!("Block {} processed in {:?}", block_num, elapsed);
@@ -81,7 +84,6 @@ async fn run_indexer(args: Cli) {
                     drop(permit);
                 });
                 last_processed_slot = Some(block_num);
-                
             }
         }
     }
@@ -89,27 +91,32 @@ async fn run_indexer(args: Cli) {
 
 fn bind_zmq(port: &str) -> zmq::Socket {
     let ctx = zmq::Context::new();
-    let publisher = ctx.socket(zmq::PUB).expect("Failed to create ZMQ PUB socket");
-    publisher.bind(format!("tcp://*:{}", port).as_str()).expect("Failed to bind publisher");
+    let publisher = ctx
+        .socket(zmq::PUB)
+        .expect("Failed to create ZMQ PUB socket");
+    publisher
+        .bind(format!("tcp://*:{}", port).as_str())
+        .expect("Failed to bind publisher");
     publisher
 }
 
 #[tokio::main]
 async fn main() {
-    
-    // let ctx = zmq::Context::new();
-    // let publisher = ctx.socket(zmq::PUB).expect("Failed to create ZMQ PUB socket");
-    // publisher.bind("tcp://*:5555").expect("Failed to bind publisher");
+    let ctx = zmq::Context::new();
+    let publisher = ctx
+        .socket(zmq::PUB)
+        .expect("Failed to create ZMQ PUB socket");
+    publisher
+        .bind("tcp://*:5555")
+        .expect("Failed to bind publisher");
 
     // // 2. Wrap the publisher in an Arc<Mutex> so we can share it
-    // let publisher_arc = Arc::new(Mutex::new(publisher));
-    
-    
+    let publisher_arc = Arc::new(Mutex::new(publisher));
+
     run_indexer(publisher_arc).await;
     // TODO: options
     // 1. block limits - min, max
     // 2. order
     // 3. include csv save
     // 4. include zmq
-    
 }

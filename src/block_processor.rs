@@ -1,15 +1,18 @@
-
-
-use std::{sync::{Arc, Mutex}, thread::current, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    sync::{Arc, Mutex},
+    thread::current,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{
+    global::OUTPUT_PATH,
     models::{TokenBalance, TradeData, UiTokenAmount, ZmqData},
     tx_processor::process_tx,
-    utils::{convert_to_date, get_amt, get_mint, get_signer_balance_change, save_trades_to_csv},
+    utils::{convert_to_date, get_amt, get_mint, get_signer_balance_change, save_trades_to_avro, save_trades_to_csv},
 };
-use std::time::Duration;
 use chrono::{DateTime, Utc};
 use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions};
+use std::time::Duration;
 
 pub async fn process_block(block: EncodedConfirmedBlock, publisher_clone: Arc<Mutex<zmq::Socket>>) {
     let timestamp = block.block_time.expect("Block time not found");
@@ -38,12 +41,18 @@ pub async fn process_block(block: EncodedConfirmedBlock, publisher_clone: Arc<Mu
     let current_datetime = DateTime::<Utc>::from(current_time);
     let current_timestamp_str = current_datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
 
-    println!("Block time: {:?}, processed at: {:?}", timestamp_str, current_timestamp_str);
+    println!(
+        "Block time: {:?}, processed at: {:?}",
+        timestamp_str, current_timestamp_str
+    );
 
-    let file_path = format!("/Volumes/T9/data/{}/{}.csv", date_str, slot);
+    let file_path = format!("{}/{}/{}.avro", OUTPUT_PATH.as_str(), date_str, slot);
     println!("Saving trades to: {}", file_path);
 
-    save_trades_to_csv(&data, file_path.as_str()).await.expect("Failed to save trades to csv");
+    // save_trades_to_csv(&data, file_path.as_str()).await.expect("Failed to save trades to csv");
+    save_trades_to_avro(&data, file_path.as_str())
+        .await
+        .expect("Failed to save trades to avro");
 
     // TODO: ZMQ
     // let zmq_data: ZmqData = ZmqData {

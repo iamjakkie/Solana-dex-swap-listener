@@ -12,3 +12,10 @@ lazy_static! {
         ))
     };
 }
+
+lazy_static! {
+    // set output file path for avro files based on OUTPUT_PATH env variable
+    pub static ref OUTPUT_PATH: String = {
+        env::var("OUTPUT_PATH").expect("OUTPUT_PATH is not set")
+    };
+}

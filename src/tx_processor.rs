@@ -165,56 +165,54 @@ pub async fn process_tx(
             JUPITER_PROGRAM_ID => {
                 // Gather all Raydium (base, quote) pairs within Jupiter instructions
                 trx_meta_inner.iter().for_each(|inner| {
+                    let inner_instructions = inner.instructions.clone();
 
-                        let inner_instructions = inner.instructions.clone();
+                    let jupiter_trades: Vec<TradeData> = inner_instructions
+                        .iter()
+                        .filter_map(|inner_inst| {
+                            if let UiInstruction::Compiled(compiled) = inner_inst {
+                                let program_data =
+                                    bs58::decode(compiled.data.clone()).into_vec().unwrap();
+                                let program_add =
+                                    all_addresses.get(compiled.program_id_index as usize)?;
+                                if program_add == RAYDIUM_PROGRAM_ID {
+                                    // Hardcoded indices 4, 5, as before
+                                    let base_add = all_addresses
+                                        .get(compiled.accounts[4] as usize)
+                                        .expect("Base account not found")
+                                        .clone();
+                                    let quote_add = all_addresses
+                                        .get(compiled.accounts[5] as usize)
+                                        .expect("Quote account not found")
+                                        .clone();
 
-                        let jupiter_trades: Vec<TradeData> = inner_instructions
-                            .iter()
-                            .filter_map(|inner_inst| {
-                                if let UiInstruction::Compiled(compiled) = inner_inst {
-                                    let program_data =
-                                        bs58::decode(compiled.data.clone()).into_vec().unwrap();
-                                    let program_add =
-                                        all_addresses.get(compiled.program_id_index as usize)?;
-                                    if program_add == RAYDIUM_PROGRAM_ID {
-                                        // Hardcoded indices 4, 5, as before
-                                        let base_add = all_addresses
-                                            .get(compiled.accounts[4] as usize)
-                                            .expect("Base account not found")
-                                            .clone();
-                                        let quote_add = all_addresses
-                                            .get(compiled.accounts[5] as usize)
-                                            .expect("Quote account not found")
-                                            .clone();
-
-                                        return build_trade_data(
-                                            program_add,
-                                            &program_data,
-                                            &compiled.accounts,
-                                            &all_addresses,
-                                            &pre_token_balances_vec,
-                                            &post_token_balances_vec,
-                                            &base_add,
-                                            &quote_add,
-                                            &inner_instructions,
-                                            timestamp,
-                                            slot,
-                                            &signature,
-                                            idx,
-                                            &trx_meta_inner,
-                                            &pre_balances,
-                                            &post_balances,
-                                            fee,
-                                        );
-
-                                    }
+                                    return build_trade_data(
+                                        program_add,
+                                        &program_data,
+                                        &compiled.accounts,
+                                        &all_addresses,
+                                        &pre_token_balances_vec,
+                                        &post_token_balances_vec,
+                                        &base_add,
+                                        &quote_add,
+                                        &inner_instructions,
+                                        timestamp,
+                                        slot,
+                                        &signature,
+                                        idx,
+                                        &trx_meta_inner,
+                                        &pre_balances,
+                                        &post_balances,
+                                        fee,
+                                    );
                                 }
-                                None
-                            })
-                            .collect();
-                        trades.extend(jupiter_trades);
-                    });
-                }
+                            }
+                            None
+                        })
+                        .collect();
+                    trades.extend(jupiter_trades);
+                });
+            }
 
             _ => {}
         };
