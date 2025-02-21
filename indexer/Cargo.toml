@@ -1,0 +1,16 @@
+[package]
+name = "indexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common ={ path = "../common" }
+tokio = { version = "1.27", features = [
+    "time",
+    "sync",
+    "macros",
+    "test-util",
+    "rt-multi-thread",
+    "parking_lot",
+] }
+zmq = "0.10.0"
