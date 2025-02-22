@@ -4,6 +4,7 @@ mod models;
 use avro_rs::types::{Record, Value};
 use chrono::{NaiveDateTime, Datelike, Timelike};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use csv::Reader;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
@@ -139,5 +140,6 @@ async fn main() {
 
     let path = "/Users/jakkie/Dev/solana_data/test/";
     let preprocessor = preprocessor::Preprocessor::new(path).await;
+    let preprocessor = Arc::new(preprocessor);
     preprocessor.run().await;
 }

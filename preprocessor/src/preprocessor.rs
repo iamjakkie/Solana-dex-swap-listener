@@ -1,11 +1,11 @@
 
-use std::{collections::{BTreeSet, HashMap}, env, fs::{self, File}, path::Path, sync::Arc};
+use std::{collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File}, path::{Path, PathBuf}, sync::Arc, time::Duration};
 use anyhow::{Ok, Result};
 use common::models::TradeData;
 use lazy_static::lazy_static;
 use native_tls::{TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time};
 
 
 use crate::models::TokenMeta;
@@ -15,14 +15,14 @@ lazy_static!(
     pub static ref SOLSCAN_API_KEY: String = env::var("SOLSCAN_API_KEY").expect("SOLSCAN_API_KEY must be set");
 );
 
-pub struct Preprocessor<'a>{
-    pub path: &'a Path,
+pub struct Preprocessor{
+    pub path: PathBuf,
     pub db_client: tokio_postgres::Client,
     token_meta_map: Arc<Mutex<HashMap<String, TokenMeta>>>,
 }
 
-impl<'a> Preprocessor<'a>{
-    pub async fn new(path: &'a str) -> Self {
+impl Preprocessor{
+    pub async fn new(path: &str) -> Self {
         let base_path = Path::new(path);
         if !base_path.exists() {
             panic!("Directory does not exist!");
@@ -43,7 +43,7 @@ impl<'a> Preprocessor<'a>{
         });
 
         let preprocessor = Preprocessor{
-            path: base_path,
+            path: base_path.to_path_buf(),
             db_client: client,
             token_meta_map: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -51,6 +51,98 @@ impl<'a> Preprocessor<'a>{
         preprocessor.load_token_meta().await.expect("Failed to load token meta");
 
         preprocessor
+    }
+
+    pub async fn start_token_meta_dump(&self) {
+        // Choose an interval (e.g., every 10 minutes)
+        let mut interval = time::interval(Duration::from_secs(600));
+        loop {
+            interval.tick().await;
+            if let Err(e) = self.dump_token_meta_to_db().await {
+                eprintln!("Error dumping token meta to DB: {}", e);
+            } else {
+                println!("Token meta successfully dumped to DB");
+            }
+        }
+    }
+
+    pub async fn dump_token_meta_to_db(&self) -> Result<()> {
+        // Load current state from DB into a local HashMap keyed by contract_address.
+        let rows = self.db_client
+            .query(
+                "SELECT contract_address FROM token_meta",
+                &[],
+            )
+            .await?;
+        
+        let mut db_state: HashSet<String> = HashSet::new();
+        rows.iter().for_each(|row| {
+            db_state.insert(row.get(0));
+        });
+
+        // Lock the in-memory token meta map.
+        let token_meta_map = self.token_meta_map.lock().await;
+
+        // calculate the difference
+        let token_meta_set: HashSet<String> = token_meta_map.keys().cloned().collect();
+
+        let new_tokens: HashSet<String> = token_meta_set.difference(&db_state).cloned().collect();
+
+        // construct query
+
+        let mut query = "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ".to_string();
+
+        for contract in new_tokens {
+            let meta = token_meta_map.get(&contract).unwrap();
+            query.push_str(&format!("('{}', '{}', '{}', {}, {}, '{}', {}, '{}', '{}'),", meta.contract_address, meta.token_name, meta.token_symbol, meta.decimals, meta.total_supply.unwrap_or(0.0), meta.creator, meta.created_time, meta.twitter.as_deref().unwrap_or(""), meta.website.as_deref().unwrap_or("")));
+        }
+
+        query.pop(); // Remove trailing comma
+
+        self.db_client
+            .execute(query.as_str(), &[])
+            .await?;
+
+        // for (contract, meta) in token_meta_map.iter() {
+        //     if let Some(db_meta) = db_state.get(contract) {
+        //         // Compare: if they differ, update the DB record.
+        //         if !token_meta_equal(meta, db_meta) {
+        //             self.db_client.execute(
+        //                 "UPDATE token_meta SET token_name = $1, token_symbol = $2, decimals = $3, total_supply = $4, creator = $5, created_time = $6, twitter = $7, website = $8 WHERE contract_address = $9",
+        //                 &[
+        //                     &meta.token_name,
+        //                     &meta.token_symbol,
+        //                     &meta.decimals,
+        //                     &meta.total_supply,
+        //                     &meta.creator,
+        //                     &meta.created_time,
+        //                     &meta.twitter,
+        //                     &meta.website,
+        //                     contract,
+        //                 ],
+        //             ).await?;
+        //         }
+        //     } else {
+        //         // Not in DB: insert new record.
+        //         self.db_client.execute(
+        //             "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        //             &[
+        //                 &meta.contract_address,
+        //                 &meta.token_name,
+        //                 &meta.token_symbol,
+        //                 &meta.decimals,
+        //                 &meta.total_supply,
+        //                 &meta.creator,
+        //                 &meta.created_time,
+        //                 &meta.twitter,
+        //                 &meta.website,
+        //             ],
+        //         ).await?;
+        //     }
+        // }
+
+        println!("Token meta successfully dumped to DB at");
+        Ok(())
     }
 
     async fn load_token_meta(&self) -> Result<()> {
@@ -243,7 +335,7 @@ impl<'a> Preprocessor<'a>{
         Ok(())
     }
 
-    pub async fn run(&self) {
+    pub async fn run(self: Arc<Self>) {
         // get all dates
         // check if for these dates _hourly folder exist
 
@@ -280,6 +372,11 @@ impl<'a> Preprocessor<'a>{
         //         }
         //     }
         // }
+        let preprocessor_clone = Arc::clone(&self);
+        tokio::spawn(async move {
+            preprocessor_clone.start_token_meta_dump().await;
+        });
+
     }
 }
 
