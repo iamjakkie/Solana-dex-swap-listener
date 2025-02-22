@@ -55,18 +55,22 @@ impl Preprocessor{
 
     pub async fn start_token_meta_dump(&self) {
         // Choose an interval (e.g., every 10 minutes)
-        let mut interval = time::interval(Duration::from_secs(600));
+        let mut interval = time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
+            println!("DUMP");
             if let Err(e) = self.dump_token_meta_to_db().await {
-                eprintln!("Error dumping token meta to DB: {}", e);
-            } else {
-                println!("Token meta successfully dumped to DB");
-            }
+                println!("Error dumping token meta to DB: {}", e);
+            } 
         }
     }
 
     pub async fn dump_token_meta_to_db(&self) -> Result<()> {
+        let token_meta_map = self.token_meta_map.lock().await;
+
+        if token_meta_map.is_empty() {
+            return Ok(());
+        }
         // Load current state from DB into a local HashMap keyed by contract_address.
         let rows = self.db_client
             .query(
@@ -79,9 +83,6 @@ impl Preprocessor{
         rows.iter().for_each(|row| {
             db_state.insert(row.get(0));
         });
-
-        // Lock the in-memory token meta map.
-        let token_meta_map = self.token_meta_map.lock().await;
 
         // calculate the difference
         let token_meta_set: HashSet<String> = token_meta_map.keys().cloned().collect();
@@ -208,10 +209,11 @@ impl Preprocessor{
 
     async fn get_token_meta(&self, token_address: &str) -> Result<()> {
         // try to find in self.token_meta_map first
-        let token_meta_map = self.token_meta_map.lock().await;
-        if let Some(token_meta) = token_meta_map.get(token_address) {
-            println!("{:?}", token_meta);
-            return Ok(());
+        {
+            let token_meta_map = self.token_meta_map.lock().await;
+            if let Some(token_meta) = token_meta_map.get(token_address) {
+                return Ok(());
+            }
         }
 
         // else go to API
@@ -225,42 +227,42 @@ impl Preprocessor{
             .json::<serde_json::Value>()
             .await?;
 
-            let data = res.get("data").expect("Failed to get data");
+        let data = res.get("data").expect("Failed to get data");
 
-            let token_meta = TokenMeta {
-                contract_address: token_address.to_string(),
-                token_name: data.get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                token_symbol: data.get("symbol")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                decimals: data.get("decimals")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as i32,
-                total_supply: data.get("totalSupply")
-                    .and_then(|v| v.as_f64()),
-                creator: data.get("creator")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                created_time: data.get("createdTime")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as i64)
-                    .unwrap_or(0),
-                twitter: data.get("twitter")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                website: data.get("website")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-            };
+        let token_meta = TokenMeta {
+            contract_address: token_address.to_string(),
+            token_name: data.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            token_symbol: data.get("symbol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            decimals: data.get("decimals")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as i32,
+            total_supply: data.get("totalSupply")
+                .and_then(|v| v.as_f64()),
+            creator: data.get("creator")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            created_time: data.get("createdTime")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as i64)
+                .unwrap_or(0),
+            twitter: data.get("twitter")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            website: data.get("website")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+        };
 
-            // add to self.token_meta_map
-            let mut token_meta_map = self.token_meta_map.lock().await;
-            token_meta_map.insert(token_meta.contract_address.clone(), token_meta);
+        // add to self.token_meta_map
+        let mut token_meta_map = self.token_meta_map.lock().await;
+        token_meta_map.insert(token_meta.contract_address.clone(), token_meta.clone());
 
         Ok(())
     }
@@ -342,6 +344,11 @@ impl Preprocessor{
         //1 . get all folders
         let folders = list_directories(self.path.to_str().unwrap());
 
+        let preprocessor_clone = Arc::clone(&self);
+        tokio::spawn(async move {
+            preprocessor_clone.start_token_meta_dump().await;
+        });
+
         for folder in folders {
             self.process(&format!("{}{}", self.path.to_str().unwrap(), folder)).await;
         }
@@ -372,10 +379,7 @@ impl Preprocessor{
         //         }
         //     }
         // }
-        let preprocessor_clone = Arc::clone(&self);
-        tokio::spawn(async move {
-            preprocessor_clone.start_token_meta_dump().await;
-        });
+        
 
     }
 }
