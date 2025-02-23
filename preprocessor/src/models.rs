@@ -12,4 +12,3 @@ pub struct TokenMeta {
     pub twitter: Option<String>,
     pub website: Option<String>,
 }
-

@@ -1,12 +1,17 @@
-
-use std::{collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File}, path::{Path, PathBuf}, sync::Arc, time::Duration};
 use anyhow::{Ok, Result};
 use common::models::TradeData;
 use lazy_static::lazy_static;
-use native_tls::{TlsConnector};
+use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    env,
+    fs::{self, File},
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{sync::Mutex, time};
-
 
 use crate::models::TokenMeta;
 
@@ -15,26 +20,28 @@ lazy_static!(
     pub static ref SOLSCAN_API_KEY: String = env::var("SOLSCAN_API_KEY").expect("SOLSCAN_API_KEY must be set");
 );
 
-pub struct Preprocessor{
+pub struct Preprocessor {
     pub path: PathBuf,
     pub db_client: tokio_postgres::Client,
     token_meta_map: Arc<Mutex<HashMap<String, TokenMeta>>>,
 }
 
-impl Preprocessor{
+impl Preprocessor {
     pub async fn new(path: &str) -> Self {
         let base_path = Path::new(path);
         if !base_path.exists() {
             panic!("Directory does not exist!");
         }
 
-        let connector = TlsConnector::builder().danger_accept_invalid_certs(true).build().unwrap();
+        let connector = TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap();
         let connector = MakeTlsConnector::new(connector);
 
-        let (client, connection) =
-            tokio_postgres::connect(&get_database_url(), connector)
-                .await
-                .unwrap();
+        let (client, connection) = tokio_postgres::connect(&get_database_url(), connector)
+            .await
+            .unwrap();
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {
@@ -42,13 +49,16 @@ impl Preprocessor{
             }
         });
 
-        let preprocessor = Preprocessor{
+        let preprocessor = Preprocessor {
             path: base_path.to_path_buf(),
             db_client: client,
             token_meta_map: Arc::new(Mutex::new(HashMap::new())),
         };
 
-        preprocessor.load_token_meta().await.expect("Failed to load token meta");
+        preprocessor
+            .load_token_meta()
+            .await
+            .expect("Failed to load token meta");
 
         preprocessor
     }
@@ -61,7 +71,7 @@ impl Preprocessor{
             println!("DUMP");
             if let Err(e) = self.dump_token_meta_to_db().await {
                 println!("Error dumping token meta to DB: {}", e);
-            } 
+            }
         }
     }
 
@@ -72,13 +82,11 @@ impl Preprocessor{
             return Ok(());
         }
         // Load current state from DB into a local HashMap keyed by contract_address.
-        let rows = self.db_client
-            .query(
-                "SELECT contract_address FROM token_meta",
-                &[],
-            )
+        let rows = self
+            .db_client
+            .query("SELECT contract_address FROM token_meta", &[])
             .await?;
-        
+
         let mut db_state: HashSet<String> = HashSet::new();
         rows.iter().for_each(|row| {
             db_state.insert(row.get(0));
@@ -95,59 +103,31 @@ impl Preprocessor{
 
         for contract in new_tokens {
             let meta = token_meta_map.get(&contract).unwrap();
-            query.push_str(&format!("('{}', '{}', '{}', {}, {}, '{}', {}, '{}', '{}'),", meta.contract_address, meta.token_name, meta.token_symbol, meta.decimals, meta.total_supply.unwrap_or(0.0), meta.creator, meta.created_time, meta.twitter.as_deref().unwrap_or(""), meta.website.as_deref().unwrap_or("")));
+            query.push_str(&format!(
+                "('{}', '{}', '{}', {}, {}, '{}', {}, '{}', '{}'),",
+                meta.contract_address,
+                meta.token_name,
+                meta.token_symbol,
+                meta.decimals,
+                meta.total_supply.unwrap_or(0.0),
+                meta.creator,
+                meta.created_time,
+                meta.twitter.as_deref().unwrap_or(""),
+                meta.website.as_deref().unwrap_or("")
+            ));
         }
 
         query.pop(); // Remove trailing comma
 
-        self.db_client
-            .execute(query.as_str(), &[])
-            .await?;
-
-        // for (contract, meta) in token_meta_map.iter() {
-        //     if let Some(db_meta) = db_state.get(contract) {
-        //         // Compare: if they differ, update the DB record.
-        //         if !token_meta_equal(meta, db_meta) {
-        //             self.db_client.execute(
-        //                 "UPDATE token_meta SET token_name = $1, token_symbol = $2, decimals = $3, total_supply = $4, creator = $5, created_time = $6, twitter = $7, website = $8 WHERE contract_address = $9",
-        //                 &[
-        //                     &meta.token_name,
-        //                     &meta.token_symbol,
-        //                     &meta.decimals,
-        //                     &meta.total_supply,
-        //                     &meta.creator,
-        //                     &meta.created_time,
-        //                     &meta.twitter,
-        //                     &meta.website,
-        //                     contract,
-        //                 ],
-        //             ).await?;
-        //         }
-        //     } else {
-        //         // Not in DB: insert new record.
-        //         self.db_client.execute(
-        //             "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-        //             &[
-        //                 &meta.contract_address,
-        //                 &meta.token_name,
-        //                 &meta.token_symbol,
-        //                 &meta.decimals,
-        //                 &meta.total_supply,
-        //                 &meta.creator,
-        //                 &meta.created_time,
-        //                 &meta.twitter,
-        //                 &meta.website,
-        //             ],
-        //         ).await?;
-        //     }
-        // }
+        self.db_client.execute(query.as_str(), &[]).await?;
 
         println!("Token meta successfully dumped to DB at");
         Ok(())
     }
 
     async fn load_token_meta(&self) -> Result<()> {
-        let rows = self.db_client
+        let rows = self
+            .db_client
             .query("SELECT * FROM token_meta", &[])
             .await
             .expect("Failed to fetch token meta");
@@ -180,31 +160,16 @@ impl Preprocessor{
         for entry in fs::read_dir(dir).expect("Failed to read directory") {
             let entry = entry.expect("Failed to read entry");
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "csv" || ext == "avro") {
+            if path
+                .extension()
+                .map_or(false, |ext| ext == "csv" || ext == "avro")
+            {
                 files.push(path.to_string_lossy().into_owned());
             }
         }
 
         files.sort(); // Ensure processing in order
         files
-    }
-
-    async fn save_missing_slots(&self, missing_slots: &[u64]) -> Result<()> {
-        let mut query = "INSERT INTO missing_slots (slot) VALUES ".to_string();
-        for slot in missing_slots {
-            query.push_str(&format!("({}),", slot));
-        }
-
-        query.pop(); // Remove trailing comma
-        query.push(';');
-
-        self.db_client
-            .execute(query.as_str(), &[])
-            .await
-            .expect("Failed to save missing slots");
-
-        println!("📝 Saved {} missing slots to lacking.txt", missing_slots.len());
-        Ok(())
     }
 
     async fn get_token_meta(&self, token_address: &str) -> Result<()> {
@@ -217,7 +182,10 @@ impl Preprocessor{
         }
 
         // else go to API
-        let url = format!("https://pro-api.solscan.io/v2.0/token/meta?address={}", token_address);
+        let url = format!(
+            "https://pro-api.solscan.io/v2.0/token/meta?address={}",
+            token_address
+        );
         let client = reqwest::Client::new();
         let res = client
             .get(&url)
@@ -231,31 +199,34 @@ impl Preprocessor{
 
         let token_meta = TokenMeta {
             contract_address: token_address.to_string(),
-            token_name: data.get("name")
+            token_name: data
+                .get("name")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            token_symbol: data.get("symbol")
+            token_symbol: data
+                .get("symbol")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            decimals: data.get("decimals")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as i32,
-            total_supply: data.get("totalSupply")
-                .and_then(|v| v.as_f64()),
-            creator: data.get("creator")
+            decimals: data.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as i32,
+            total_supply: data.get("totalSupply").and_then(|v| v.as_f64()),
+            creator: data
+                .get("creator")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            created_time: data.get("createdTime")
+            created_time: data
+                .get("createdTime")
                 .and_then(|v| v.as_u64())
                 .map(|v| v as i64)
                 .unwrap_or(0),
-            twitter: data.get("twitter")
+            twitter: data
+                .get("twitter")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            website: data.get("website")
+            website: data
+                .get("website")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
         };
@@ -268,9 +239,9 @@ impl Preprocessor{
     }
 
     async fn merge_into_hourly(&self, raw_files: &Vec<String>, folder: &String) -> Result<()> {
-    //     // combine into hourly
-    //     // insert to db empty files
-    //     // get metadata for tokens
+        //     // combine into hourly
+        //     // insert to db empty files
+        //     // get metadata for tokens
         fs::create_dir_all(&folder)?;
 
         for file in raw_files {
@@ -279,49 +250,58 @@ impl Preprocessor{
                 for result in rdr.deserialize::<TradeData>() {
                     let trade = result?;
                     // get token which is not So11111111111111111111111111111111111111112
-                    let traded_token = if trade.base_mint != "So11111111111111111111111111111111111111112" {
-                        trade.base_mint.clone()
-                    } else {
-                        trade.quote_mint.clone()
-                    };
+                    let traded_token =
+                        if trade.base_mint != "So11111111111111111111111111111111111111112" {
+                            trade.base_mint.clone()
+                        } else {
+                            trade.quote_mint.clone()
+                        };
 
-                    let meta = self.get_token_meta(&traded_token).await.expect("Failed to get token meta");
+                    let meta = self
+                        .get_token_meta(&traded_token)
+                        .await
+                        .expect("Failed to get token meta");
+                    // get sol price
                 }
             } else if file.ends_with(".avro") {
                 let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
                 for result in rdr {
                     let value = result?;
                     let trade: TradeData = avro_rs::from_value(&value)?;
-                    let traded_token = if trade.base_mint != "So11111111111111111111111111111111111111112" {
-                        trade.base_mint.clone()
-                    } else {
-                        trade.quote_mint.clone()
-                    };
+                    let traded_token =
+                        if trade.base_mint != "So11111111111111111111111111111111111111112" {
+                            trade.base_mint.clone()
+                        } else {
+                            trade.quote_mint.clone()
+                        };
 
-                    let meta = self.get_token_meta(&traded_token).await.expect("Failed to get token meta");
+                    let meta = self
+                        .get_token_meta(&traded_token)
+                        .await
+                        .expect("Failed to get token meta");
                 }
             } else {
                 continue;
             }
 
-                // let mut record = Record::new(&AVRO_SCHEMA).unwrap();
-                // record.put("block_time", trade.block_time);
-                // record.put("block_slot", trade.block_slot as i64);
-                // record.put("signature", trade.signature);
-                // record.put("tx_id", trade.tx_id);
-                // record.put("signer", trade.signer);
-                // record.put("pool_address", trade.pool_address);
-                // record.put("base_mint", trade.base_mint);
-                // record.put("quote_mint", trade.quote_mint);
-                // record.put("base_amount", trade.base_amount);
-                // record.put("quote_amount", trade.quote_amount);
-                // record.put("instruction_type", trade.instruction_type);
+            // let mut record = Record::new(&AVRO_SCHEMA).unwrap();
+            // record.put("block_time", trade.block_time);
+            // record.put("block_slot", trade.block_slot as i64);
+            // record.put("signature", trade.signature);
+            // record.put("tx_id", trade.tx_id);
+            // record.put("signer", trade.signer);
+            // record.put("pool_address", trade.pool_address);
+            // record.put("base_mint", trade.base_mint);
+            // record.put("quote_mint", trade.quote_mint);
+            // record.put("base_amount", trade.base_amount);
+            // record.put("quote_amount", trade.quote_amount);
+            // record.put("instruction_type", trade.instruction_type);
 
-                // writer.append(record)?;
-            }
-
-            Ok(())
+            // writer.append(record)?;
         }
+
+        Ok(())
+    }
 
     async fn process(&self, folder: &str) -> Result<()> {
         let raw_files = self.get_raw_files(folder);
@@ -331,8 +311,9 @@ impl Preprocessor{
         //     self.save_missing_slots(&missing_slots).await.expect("Failed to save missing slots");
         // }
 
-        self.merge_into_hourly(&raw_files, &format!("{}/hourly", folder)).await.expect("Failed to merge into hourly");
-
+        self.merge_into_hourly(&raw_files, &format!("{}/hourly", folder))
+            .await
+            .expect("Failed to merge into hourly");
 
         Ok(())
     }
@@ -350,7 +331,8 @@ impl Preprocessor{
         });
 
         for folder in folders {
-            self.process(&format!("{}{}", self.path.to_str().unwrap(), folder)).await;
+            self.process(&format!("{}{}", self.path.to_str().unwrap(), folder))
+                .await;
         }
 
         // for entry in fs::read_dir(self.path).unwrap() {
@@ -358,7 +340,7 @@ impl Preprocessor{
         //     let path = entry.path();
 
         //     println!("{:?}", path);
-            
+
         //     if path.is_dir() {
         //         println!("Is dir");
         //         let folder_name = path.file_name().unwrap().to_str().unwrap();
@@ -373,14 +355,10 @@ impl Preprocessor{
         //                 self.save_missing_slots(&missing_slots).await.expect("Failed to save missing slots");
         //             }
 
-
-
         //             // merge_into_hourly(&csv_files, &hourly_folder)?;
         //         }
         //     }
         // }
-        
-
     }
 }
 

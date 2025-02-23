@@ -1,21 +1,22 @@
-mod preprocessor;
 mod models;
+mod preprocessor;
 
+use anyhow::Result;
 use avro_rs::types::{Record, Value};
-use chrono::{NaiveDateTime, Datelike, Timelike};
-use std::collections::{BTreeSet, HashMap};
-use std::sync::Arc;
+use chrono::{Datelike, NaiveDateTime, Timelike};
 use csv::Reader;
+use lazy_static::lazy_static;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
-use anyhow::Result;
-use lazy_static::lazy_static;
+use std::sync::Arc;
 
 use avro_rs::{Codec, Schema, Writer};
 
 lazy_static! {
-    pub static ref AVRO_SCHEMA: Schema = Schema::parse_str(r#"
+    pub static ref AVRO_SCHEMA: Schema = Schema::parse_str(
+        r#"
     {
         "type": "record",
         "name": "TradeData",
@@ -33,9 +34,10 @@ lazy_static! {
             { "name": "instruction_type", "type": "string" }
         ]
     }
-    "#).expect("Failed to parse Avro schema");
+    "#
+    )
+    .expect("Failed to parse Avro schema");
 }
-
 
 // pub fn csv_to_avro_per_slot(csv_files: &Vec<String>, avro_folder: &str) -> Result<()> {
 //     std::fs::create_dir_all(avro_folder)?;
@@ -102,17 +104,30 @@ pub fn merge_avro_per_hour(raw_avro_folder: &str, output_folder: &str) -> Result
             // Process each record in the slot Avro file
             for value in reader {
                 if let Value::Record(record) = value? {
-                    if let Some((_, Value::Long(block_time))) = record.iter().find(|(key, _)| key == "block_time") {
+                    if let Some((_, Value::Long(block_time))) =
+                        record.iter().find(|(key, _)| key == "block_time")
+                    {
                         let dt = NaiveDateTime::from_timestamp_opt(*block_time, 0)
                             .expect("Invalid timestamp");
 
                         // Construct the correct hourly key: YYYY-MM-DD-HH
-                        let hour_key = format!("{:04}-{:02}-{:02}-{:02}", dt.year(), dt.month(), dt.day(), dt.hour());
+                        let hour_key = format!(
+                            "{:04}-{:02}-{:02}-{:02}",
+                            dt.year(),
+                            dt.month(),
+                            dt.day(),
+                            dt.hour()
+                        );
                         let output_avro_path = format!("{}/{}.avro", output_folder, hour_key);
 
                         // Get or create the writer for this hour
                         let writer = hourly_writers.entry(hour_key.clone()).or_insert_with(|| {
-                            let file = OpenOptions::new().create(true).write(true).truncate(true).open(&output_avro_path).unwrap();
+                            let file = OpenOptions::new()
+                                .create(true)
+                                .write(true)
+                                .truncate(true)
+                                .open(&output_avro_path)
+                                .unwrap();
                             Writer::with_codec(&AVRO_SCHEMA, BufWriter::new(file), Codec::Deflate)
                         });
 
@@ -133,11 +148,8 @@ pub fn merge_avro_per_hour(raw_avro_folder: &str, output_folder: &str) -> Result
     Ok(())
 }
 
-
-
 #[tokio::main]
 async fn main() {
-
     let path = "/Users/jakkie/Dev/solana_data/test/";
     let preprocessor = preprocessor::Preprocessor::new(path).await;
     let preprocessor = Arc::new(preprocessor);
