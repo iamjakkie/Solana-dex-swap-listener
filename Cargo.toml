@@ -2,5 +2,6 @@
 members = [
     "indexer",
     "preprocessor",
+    "pricer",
     "common",
 ]
