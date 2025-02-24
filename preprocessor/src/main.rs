@@ -150,6 +150,8 @@ pub fn merge_avro_per_hour(raw_avro_folder: &str, output_folder: &str) -> Result
 
 #[tokio::main]
 async fn main() {
+    // Assumption - this gets triggered once every day
+    let yesterday = (chrono::Utc::today().naive_utc() - chrono::Duration::days(1)).to_string().as_str();
     let path = "/Users/jakkie/Dev/solana_data/test/";
     let preprocessor = preprocessor::Preprocessor::new(path).await;
     let preprocessor = Arc::new(preprocessor);

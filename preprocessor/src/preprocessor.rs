@@ -1,5 +1,5 @@
 use anyhow::{Ok, Result};
-use common::models::TradeData;
+use common::{block_processor::process_block, models::TradeData, rpc_client::fetch_block_with_version};
 use lazy_static::lazy_static;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{sync::Mutex, time};
+use tokio::{sync::{Mutex, Semaphore}, time};
 
 use crate::models::TokenMeta;
 
@@ -172,6 +172,58 @@ impl Preprocessor {
         files
     }
 
+    fn verify_slot(&self, file: &str) -> bool {
+        // check size of the file
+        let file = format!("{}/{}", self.path.to_str().unwrap(), file);
+        let metadata = fs::metadata(file).expect("Failed to get metadata");
+        if metadata.len() <= 10 {
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    fn check_missing_slots(&self, raw_files: &[String]) -> Result<Vec<u64>> {
+        let mut slots: BTreeSet<u64> = BTreeSet::new();
+    
+        for file in raw_files {
+            if let Some(slot) = extract_slot_from_filename(file) {
+                
+                // check if file is empty and/or corrupted
+                if self.verify_slot(file.as_str()) {
+                    continue;
+                } else {
+                    slots.insert(slot);
+                }
+            }
+        }
+    
+        let min_slot = *slots.iter().next().unwrap_or(&0);
+        let max_slot = *slots.iter().last().unwrap_or(&0);
+    
+        let mut missing_slots = vec![];
+        for slot in min_slot..=max_slot {
+            if !slots.contains(&slot) {
+                missing_slots.push(slot);
+            }
+        }
+    
+        Ok(missing_slots)
+    }
+
+    async fn reprocess_slots(&self, missing_slots: &Vec<u64>) -> Result<()> {
+        let max_concurrent_tasks = 10;
+        let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
+        for slot in missing_slots {
+            let permit = semaphore.clone().acquire_owned().await?;
+            tokio::spawn(async move {
+                let block = fetch_block_with_version(slot).await.expect("Failed to fetch block");
+                process_block(block, None).await;
+            });
+        }
+        Ok(())
+    }
+
     async fn get_token_meta(&self, token_address: &str) -> Result<()> {
         // try to find in self.token_meta_map first
         {
@@ -303,13 +355,14 @@ impl Preprocessor {
         Ok(())
     }
 
-    async fn process(&self, folder: &str) -> Result<()> {
+    async fn process(&self) -> Result<()> {
+        let folder = self.path.to_str().unwrap();
         let raw_files = self.get_raw_files(folder);
-        // let missing_slots = check_missing_slots(&raw_files)?;
+        let missing_slots = self.check_missing_slots(&raw_files)?;
 
-        // if !missing_slots.is_empty() {
-        //     self.save_missing_slots(&missing_slots).await.expect("Failed to save missing slots");
-        // }
+        if !missing_slots.is_empty() {
+            self.reprocess_slots(&missing_slots).await?;
+        }
 
         self.merge_into_hourly(&raw_files, &format!("{}/hourly", folder))
             .await
@@ -330,10 +383,7 @@ impl Preprocessor {
             preprocessor_clone.start_token_meta_dump().await;
         });
 
-        for folder in folders {
-            self.process(&format!("{}{}", self.path.to_str().unwrap(), folder))
-                .await;
-        }
+        self.process().await;
 
         // for entry in fs::read_dir(self.path).unwrap() {
         //     let entry = entry.unwrap();
@@ -362,27 +412,7 @@ impl Preprocessor {
     }
 }
 
-fn check_missing_slots(raw_files: &[String]) -> Result<Vec<u64>> {
-    let mut slots: BTreeSet<u64> = BTreeSet::new();
 
-    for file in raw_files {
-        if let Some(slot) = extract_slot_from_filename(file) {
-            slots.insert(slot);
-        }
-    }
-
-    let min_slot = *slots.iter().next().unwrap_or(&0);
-    let max_slot = *slots.iter().last().unwrap_or(&0);
-
-    let mut missing_slots = vec![];
-    for slot in min_slot..=max_slot {
-        if !slots.contains(&slot) {
-            missing_slots.push(slot);
-        }
-    }
-
-    Ok(missing_slots)
-}
 
 fn extract_slot_from_filename(filename: &str) -> Option<u64> {
     filename

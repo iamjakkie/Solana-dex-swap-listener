@@ -17,7 +17,7 @@ use chrono::{DateTime, Utc};
 use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions};
 use std::time::Duration;
 
-pub async fn process_block(block: EncodedConfirmedBlock, publisher_clone: Arc<Mutex<zmq::Socket>>) {
+pub async fn process_block(block: EncodedConfirmedBlock, publisher_clone: Option<Arc<Mutex<zmq::Socket>>>) {
     let timestamp = block.block_time.expect("Block time not found");
     let slot = block.parent_slot;
     let mut data: Vec<TradeData> = vec![];

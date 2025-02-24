@@ -21,7 +21,6 @@ async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
 
         let max_concurrent_tasks = 25; // Limit to 10 concurrent tasks
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        // 31.01.2025 - 317661530 (23:59:59)
         if start_slot <= latest_slot {
             for block_num in (start_slot..=317661530).rev() {
                 let permit = semaphore.clone().acquire_owned().await.unwrap(); // Acquire a permit
@@ -36,7 +35,7 @@ async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
                             println!("Processing block: {}", block_num);
                             // spawn a new thread to process_block
                             // tokio::spawn(async move {
-                            process_block(block, publisher_clone).await;
+                            process_block(block, Some(publisher_clone)).await;
                             // });
                             let elapsed = start_time.elapsed();
                             println!("Block {} processed in {:?}", block_num, elapsed);
