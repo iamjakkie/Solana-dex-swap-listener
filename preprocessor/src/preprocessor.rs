@@ -214,11 +214,12 @@ impl Preprocessor {
     async fn reprocess_slots(&self, missing_slots: &Vec<u64>) -> Result<()> {
         let max_concurrent_tasks = 10;
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        for slot in missing_slots {
+        for slot in missing_slots.clone() {
             let permit = semaphore.clone().acquire_owned().await?;
             tokio::spawn(async move {
                 let block = fetch_block_with_version(slot).await.expect("Failed to fetch block");
                 process_block(block, None).await;
+                drop(permit);
             });
         }
         Ok(())
