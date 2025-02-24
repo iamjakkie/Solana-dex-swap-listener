@@ -1,5 +1,7 @@
 use anyhow::{Ok, Result};
-use common::{block_processor::process_block, models::TradeData, rpc_client::fetch_block_with_version};
+use common::{
+    block_processor::process_block, models::TradeData, rpc_client::fetch_block_with_version,
+};
 use lazy_static::lazy_static;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
@@ -11,7 +13,10 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{sync::{Mutex, Semaphore}, time};
+use tokio::{
+    sync::{Mutex, Semaphore},
+    time,
+};
 
 use crate::models::TokenMeta;
 
@@ -185,10 +190,9 @@ impl Preprocessor {
 
     fn check_missing_slots(&self, raw_files: &[String]) -> Result<Vec<u64>> {
         let mut slots: BTreeSet<u64> = BTreeSet::new();
-    
+
         for file in raw_files {
             if let Some(slot) = extract_slot_from_filename(file) {
-                
                 // check if file is empty and/or corrupted
                 if self.verify_slot(file.as_str()) {
                     continue;
@@ -197,17 +201,17 @@ impl Preprocessor {
                 }
             }
         }
-    
+
         let min_slot = *slots.iter().next().unwrap_or(&0);
         let max_slot = *slots.iter().last().unwrap_or(&0);
-    
+
         let mut missing_slots = vec![];
         for slot in min_slot..=max_slot {
             if !slots.contains(&slot) {
                 missing_slots.push(slot);
             }
         }
-    
+
         Ok(missing_slots)
     }
 
@@ -217,7 +221,9 @@ impl Preprocessor {
         for slot in missing_slots.clone() {
             let permit = semaphore.clone().acquire_owned().await?;
             tokio::spawn(async move {
-                let block = fetch_block_with_version(slot).await.expect("Failed to fetch block");
+                let block = fetch_block_with_version(slot)
+                    .await
+                    .expect("Failed to fetch block");
                 process_block(block, None).await;
                 drop(permit);
             });
@@ -385,35 +391,8 @@ impl Preprocessor {
         });
 
         self.process().await;
-
-        // for entry in fs::read_dir(self.path).unwrap() {
-        //     let entry = entry.unwrap();
-        //     let path = entry.path();
-
-        //     println!("{:?}", path);
-
-        //     if path.is_dir() {
-        //         println!("Is dir");
-        //         let folder_name = path.file_name().unwrap().to_str().unwrap();
-        //         let hourly_folder = format!("{:?}/{}/hourly", self.path, folder_name);
-
-        //         if !Path::new(&hourly_folder).exists() {
-        //             println!("Does not exist");
-        //             let raw_files = self.get_raw_files();
-        //             let missing_slots = check_missing_slots(&raw_files).unwrap();
-
-        //             if !missing_slots.is_empty() {
-        //                 self.save_missing_slots(&missing_slots).await.expect("Failed to save missing slots");
-        //             }
-
-        //             // merge_into_hourly(&csv_files, &hourly_folder)?;
-        //         }
-        //     }
-        // }
     }
 }
-
-
 
 fn extract_slot_from_filename(filename: &str) -> Option<u64> {
     filename
