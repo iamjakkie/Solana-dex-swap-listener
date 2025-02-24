@@ -1,5 +1,6 @@
 use crate::global::RPC_CLIENT;
 use crate::models::{MarketDataStruct, TokenBalance, TradeData, Transfer};
+use anyhow::Result;
 use avro_rs::types::Record;
 use avro_rs::{Schema, Writer};
 use borsh::BorshDeserialize;
@@ -9,11 +10,10 @@ use solana_sdk::program_pack::Pack;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::{bs58, inner_instruction};
 use solana_transaction_status::{UiInnerInstructions, UiInstruction};
-use tokio::task;
 use std::fs::{create_dir_all, OpenOptions};
 use std::path::Path;
 use std::str::FromStr;
-use anyhow::Result;
+use tokio::task;
 
 lazy_static::lazy_static! {
     pub static ref AVRO_SCHEMA: Schema = Schema::parse_str(r#"
@@ -547,10 +547,7 @@ fn get_system_program_transfer(
     result
 }
 
-pub async fn save_trades_to_avro(
-    trades: &Vec<TradeData>,
-    file_path: &str,
-) -> Result<()> {
+pub async fn save_trades_to_avro(trades: &Vec<TradeData>, file_path: &str) -> Result<()> {
     // Ensure the directory exists.
     if let Some(parent) = Path::new(file_path).parent() {
         create_dir_all(parent)?;
@@ -569,8 +566,7 @@ pub async fn save_trades_to_avro(
         let mut writer = Writer::new(&AVRO_SCHEMA, file);
 
         for trade in trades.clone() {
-            let mut record = Record::new(&AVRO_SCHEMA)
-                .expect("Failed to create Avro record");
+            let mut record = Record::new(&AVRO_SCHEMA).expect("Failed to create Avro record");
             record.put("block_date", trade.block_date.clone());
             record.put("block_time", trade.block_time);
             // Convert u64 to i64
@@ -588,11 +584,17 @@ pub async fn save_trades_to_avro(
             record.put("is_inner_instruction", trade.is_inner_instruction);
             record.put("instruction_index", trade.instruction_index as i32);
             record.put("instruction_type", trade.instruction_type.clone());
-            record.put("inner_instruction_index", trade.inner_instruction_index as i32);
+            record.put(
+                "inner_instruction_index",
+                trade.inner_instruction_index as i32,
+            );
             record.put("outer_program", trade.outer_program.clone());
             record.put("inner_program", trade.inner_program.clone());
             record.put("txn_fee_lamports", trade.txn_fee_lamports as i64);
-            record.put("signer_lamports_change", trade.signer_lamports_change as i64);
+            record.put(
+                "signer_lamports_change",
+                trade.signer_lamports_change as i64,
+            );
 
             writer.append(record)?;
         }
@@ -605,10 +607,7 @@ pub async fn save_trades_to_avro(
     Ok(())
 }
 
-pub async fn save_trades_to_csv(
-    trades: &Vec<TradeData>,
-    file_path: &str,
-) -> Result<()> {
+pub async fn save_trades_to_csv(trades: &Vec<TradeData>, file_path: &str) -> Result<()> {
     if let Some(parent) = Path::new(file_path).parent() {
         create_dir_all(parent)?;
     }

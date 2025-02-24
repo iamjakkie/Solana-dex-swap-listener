@@ -8,7 +8,10 @@ use crate::{
     global::OUTPUT_PATH,
     models::{TokenBalance, TradeData, UiTokenAmount, ZmqData},
     tx_processor::process_tx,
-    utils::{convert_to_date, get_amt, get_mint, get_signer_balance_change, save_trades_to_avro, save_trades_to_csv},
+    utils::{
+        convert_to_date, get_amt, get_mint, get_signer_balance_change, save_trades_to_avro,
+        save_trades_to_csv,
+    },
 };
 use chrono::{DateTime, Utc};
 use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions};

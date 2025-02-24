@@ -1,10 +1,12 @@
-
 use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
 
-use common::{block_processor::process_block, rpc_client::{fetch_block_with_version, get_latest_slot}};
+use common::{
+    block_processor::process_block,
+    rpc_client::{fetch_block_with_version, get_latest_slot},
+};
 use tokio::sync::{RwLock, Semaphore};
 use zmq;
 
