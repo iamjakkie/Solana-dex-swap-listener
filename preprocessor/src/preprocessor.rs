@@ -1,18 +1,15 @@
-use anyhow::{Ok, Result};
+use anyhow::{Result, anyhow};
+use chrono::NaiveDate;
 use common::{
-    block_processor::process_block, models::{KlineData, TradeData}, rpc_client::fetch_block_with_version,
+    block_processor::process_block, models::{KlineData, TradeData}, pricer::{fetch_klines_for_date, store_klines}, rpc_client::fetch_block_with_version
 };
 
 use lazy_static::lazy_static;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
+use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    env,
-    fs::{self, File},
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
+    collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File}, io::{BufWriter, Read, Write}, path::{Path, PathBuf}, sync::Arc, time::Duration
 };
 use tokio::{
     sync::{Mutex, Semaphore},
@@ -28,13 +25,14 @@ lazy_static!(
 
 pub struct Preprocessor {
     pub path: PathBuf,
+    date: String,
     pub db_client: tokio_postgres::Client,
     token_meta_map: Arc<Mutex<HashMap<String, TokenMeta>>>,
     sol_prices: Vec<KlineData>,
 }
 
 impl Preprocessor {
-    pub async fn new(path: &str) -> Self {
+    pub async fn new(path: &str, date: &str) -> Self {
         let base_path = Path::new(path);
         if !base_path.exists() {
             panic!("Directory does not exist!");
@@ -58,12 +56,14 @@ impl Preprocessor {
 
         let date = path.split('/').last().unwrap();
 
-        let prices = load_prices(date).await.expect("Failed to load prices");
+        let prices = load_prices(base_path, date).await.expect("Failed to load prices");
 
         let preprocessor = Preprocessor {
             path: base_path.to_path_buf(),
+            date: date.to_string(),
             db_client: client,
             token_meta_map: Arc::new(Mutex::new(HashMap::new())),
+            sol_prices: prices,
         };
 
         preprocessor
@@ -371,6 +371,44 @@ impl Preprocessor {
     }
 
     fn cleanup(&self) -> Result<()> {
+        let folder = format!("{}/{}", self.path.to_str().unwrap(), self.date);
+        let zip_file = format!("{}/{}.zip", self.path.to_str().unwrap(), self.date);
+
+        // Create the zip file.
+        let file = File::create(&zip_file)?;
+        let buf_writer = BufWriter::new(file);
+        let mut zip = zip::ZipWriter::new(buf_writer);
+        let options: FileOptions<()> = FileOptions::default().compression_method(CompressionMethod::Deflated);
+        let mut buffer = Vec::new();
+
+        let raw_files = self.get_raw_files(&folder);
+        // Walk through the folder recursively.
+        for entry in raw_files {
+            let path = Path::new(&entry);
+            // Get the relative path within the folder.
+            let name = path.strip_prefix(&folder)?.to_str().unwrap();
+
+            if path.is_file() {
+                // Add file to the zip.
+                zip.start_file(name, options)?;
+                let mut f = File::open(path)?;
+                f.read_to_end(&mut buffer)?;
+                zip.write_all(&buffer)?;
+                buffer.clear();
+            } else if path.is_dir() && !name.is_empty() {
+                // Add directory entry.
+                zip.add_directory(name, options)?;
+            }
+        }
+
+        zip.finish()?; // Finalize the zip archive.
+        println!("Successfully zipped {} to {}", folder, zip_file);
+
+        // Remove the original folder.
+        fs::remove_dir_all(&folder)?;
+        println!("Deleted original folder {}", folder);
+
+        Ok(())
 
     }
 
@@ -420,7 +458,21 @@ pub fn get_database_url() -> String {
     format!("postgres://{}:{}@{}/{}", user, password, host, db_name)
 }
 
-fn load_prices(date: &str) -> Result<Vec<KlineData>> {
-    
-    
+async fn load_prices(path: &Path, date: &str) -> Result<Vec<KlineData>> {
+    // check if SOL_PRICE file for given date exists in folder
+    let file = format!("{}/SOL_PRICE_{}.bin", path.display(), date);
+    let date_nd = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+    if !Path::new(&file).exists() {
+        match fetch_klines_for_date("SOL", date_nd).await {
+            Ok(data) => {
+                store_klines("SOL", date, &data)?;
+                return Ok(data);
+            }
+            Err(e) => {
+                println!("Error fetching SOL price: {}", e);
+                return Err(anyhow!("Error fetching SOL price"));
+            }
+        }
+    }
+    Err(anyhow!("SOL price file already exists"))
 }

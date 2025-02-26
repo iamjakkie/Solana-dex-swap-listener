@@ -759,12 +759,11 @@ checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 
 [[package]]
 name = "bzip2"
-version = "0.4.4"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdb116a6ef3f6c3698828873ad02c3014b3c85cadb88496095628e3ef1e347f8"
+checksum = "75b89e7c29231c673a61a46e722602bcd138298f6b9e81e71119693534585f5c"
 dependencies = [
  "bzip2-sys",
- "libc",
 ]
 
 [[package]]
@@ -964,6 +963,7 @@ dependencies = [
  "tokio-retry",
  "tokio-stream",
  "tonic",
+ "zip",
  "zmq",
 ]
 
@@ -3182,11 +3182,13 @@ dependencies = [
  "lazy_static",
  "native-tls",
  "postgres-native-tls",
+ "pricer",
  "reqwest 0.12.12",
  "serde",
  "serde_json",
  "tokio",
  "tokio-postgres",
+ "zip",
 ]
 
 [[package]]
@@ -3196,11 +3198,11 @@ dependencies = [
  "anyhow",
  "bincode",
  "chrono",
+ "common",
  "csv",
  "reqwest 0.12.12",
  "serde",
  "tokio",
- "zip",
 ]
 
 [[package]]
@@ -7321,9 +7323,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae9c1ea7b3a5e1f4b922ff856a129881167511563dc219869afe3787fc0c1a45"
+checksum = "b280484c454e74e5fff658bbf7df8fdbe7a07c6b2de4a53def232c15ef138f3a"
 dependencies = [
  "aes",
  "arbitrary",
