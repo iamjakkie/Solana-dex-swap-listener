@@ -1,7 +1,8 @@
 use anyhow::{Ok, Result};
 use common::{
-    block_processor::process_block, models::TradeData, rpc_client::fetch_block_with_version,
+    block_processor::process_block, models::{KlineData, TradeData}, rpc_client::fetch_block_with_version,
 };
+
 use lazy_static::lazy_static;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
@@ -29,6 +30,7 @@ pub struct Preprocessor {
     pub path: PathBuf,
     pub db_client: tokio_postgres::Client,
     token_meta_map: Arc<Mutex<HashMap<String, TokenMeta>>>,
+    sol_prices: Vec<KlineData>,
 }
 
 impl Preprocessor {
@@ -53,6 +55,10 @@ impl Preprocessor {
                 eprintln!("connection error: {}", e);
             }
         });
+
+        let date = path.split('/').last().unwrap();
+
+        let prices = load_prices(date).await.expect("Failed to load prices");
 
         let preprocessor = Preprocessor {
             path: base_path.to_path_buf(),
@@ -343,20 +349,6 @@ impl Preprocessor {
                 continue;
             }
 
-            // let mut record = Record::new(&AVRO_SCHEMA).unwrap();
-            // record.put("block_time", trade.block_time);
-            // record.put("block_slot", trade.block_slot as i64);
-            // record.put("signature", trade.signature);
-            // record.put("tx_id", trade.tx_id);
-            // record.put("signer", trade.signer);
-            // record.put("pool_address", trade.pool_address);
-            // record.put("base_mint", trade.base_mint);
-            // record.put("quote_mint", trade.quote_mint);
-            // record.put("base_amount", trade.base_amount);
-            // record.put("quote_amount", trade.quote_amount);
-            // record.put("instruction_type", trade.instruction_type);
-
-            // writer.append(record)?;
         }
 
         Ok(())
@@ -371,26 +363,26 @@ impl Preprocessor {
             self.reprocess_slots(&missing_slots).await?;
         }
 
-        self.merge_into_hourly(&raw_files, &format!("{}/hourly", folder))
+        self.merge_into_hourly(&raw_files, &format!("{}_hourly", folder))
             .await
             .expect("Failed to merge into hourly");
 
         Ok(())
     }
 
+    fn cleanup(&self) -> Result<()> {
+
+    }
+
     pub async fn run(self: Arc<Self>) {
-        // get all dates
-        // check if for these dates _hourly folder exist
-
-        //1 . get all folders
-        let folders = list_directories(self.path.to_str().unwrap());
-
         let preprocessor_clone = Arc::clone(&self);
         tokio::spawn(async move {
             preprocessor_clone.start_token_meta_dump().await;
         });
 
-        self.process().await;
+        let _ = self.process().await;
+
+        self.cleanup().expect("Failed to cleanup");
     }
 }
 
@@ -426,4 +418,9 @@ pub fn get_database_url() -> String {
     let db_name = env::var("DB_NAME").expect("DB_NAME must be set");
 
     format!("postgres://{}:{}@{}/{}", user, password, host, db_name)
+}
+
+fn load_prices(date: &str) -> Result<Vec<KlineData>> {
+    
+    
 }
