@@ -7,8 +7,9 @@ use std::{
 
 use anyhow::Result;
 use chrono::NaiveDate;
+use common::models::KlineData;
 use csv::ReaderBuilder;
-use models::{KlineData, KlineRecord};
+use models::{KlineRecord};
 use zip::ZipArchive;
 
 async fn fetch_klines_for_date(symbol: &str, date: NaiveDate) -> Result<Vec<KlineData>> {

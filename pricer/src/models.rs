@@ -1,3 +1,4 @@
+use common::models::KlineData;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -28,21 +29,6 @@ pub struct KlineRecord {
     ignore: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct KlineData {
-    open_time: u64,
-    open: f64,
-    high: f64,
-    low: f64,
-    close: f64,
-    volume: f64,
-    close_time: u64,
-    quote_asset_volume: f64,
-    number_of_trades: u64,
-    taker_buy_base_asset_volume: f64,
-    taker_buy_quote_asset_volume: f64,
-    ignore: u64,
-}
 
 impl From<KlineRecord> for KlineData {
     fn from(rec: KlineRecord) -> Self {
