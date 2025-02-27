@@ -156,7 +156,7 @@ async fn main() {
     let yesterday = binding
         .as_str();
     let path = "/Users/jakkie/Dev/solana_data/test/";
-    let preprocessor = preprocessor::Preprocessor::new(path, yesterday).await;
+    let preprocessor = preprocessor::Preprocessor::new(path, "2025-01-30").await;
     println!("Preprocessor {:?}", preprocessor.path);
     let preprocessor = Arc::new(preprocessor);
     

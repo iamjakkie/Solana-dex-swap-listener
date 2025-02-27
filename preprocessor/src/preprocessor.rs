@@ -9,7 +9,7 @@ use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File}, io::{BufWriter, Read, Write}, path::{Path, PathBuf}, sync::Arc, time::Duration
+    collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File}, io::{BufReader, BufWriter, Read, Write}, path::{Path, PathBuf}, sync::Arc, time::Duration
 };
 use tokio::{
     sync::{Mutex, Semaphore},
@@ -54,8 +54,6 @@ impl Preprocessor {
             }
         });
 
-        let date = path.split('/').last().unwrap();
-
         let prices = load_prices(base_path, date).await.expect("Failed to load prices");
 
         let preprocessor = Preprocessor {
@@ -76,7 +74,7 @@ impl Preprocessor {
 
     pub async fn start_token_meta_dump(&self) {
         // Choose an interval (e.g., every 10 minutes)
-        let mut interval = time::interval(Duration::from_secs(15));
+        let mut interval = time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             println!("DUMP");
@@ -108,6 +106,10 @@ impl Preprocessor {
 
         let new_tokens: HashSet<String> = token_meta_set.difference(&db_state).cloned().collect();
 
+        if new_tokens.is_empty() {
+            return Ok(());
+        }
+
         // construct query
 
         let mut query = "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ".to_string();
@@ -130,6 +132,7 @@ impl Preprocessor {
 
         query.pop(); // Remove trailing comma
 
+        println!("{}", query);
         self.db_client.execute(query.as_str(), &[]).await?;
 
         println!("Token meta successfully dumped to DB at");
@@ -163,7 +166,8 @@ impl Preprocessor {
         Ok(())
     }
 
-    fn get_raw_files(&self, dir: &str) -> Vec<String> {
+    async fn get_raw_files(&self, dir: &str) -> Vec<String> {
+        println!("Getting raw files");
         let mut files = vec![];
 
         println!("{:?}", dir);
@@ -185,16 +189,28 @@ impl Preprocessor {
 
     fn verify_slot(&self, file: &str) -> bool {
         // check size of the file
-        let file = format!("{}/{}", self.path.to_str().unwrap(), file);
-        let metadata = fs::metadata(file).expect("Failed to get metadata");
-        if metadata.len() <= 10 {
+        // read raw file and count lines
+        let mut lines = 0;
+        if file.ends_with(".csv") {
+            let mut rdr = csv::Reader::from_path(&file).expect("Failed to read csv file");
+            for _ in rdr.records() {
+                lines += 1;
+            }
+        } else if file.ends_with(".avro") {
+            let rdr = avro_rs::Reader::new(File::open(&file).expect("Failed to read avro file"))
+                .expect("Failed to read avro file");
+            lines = rdr.count();
+        }
+
+        if lines < 100 {
             return false;
         } else {
             return true;
         }
     }
 
-    fn check_missing_slots(&self, raw_files: &[String]) -> Result<Vec<u64>> {
+    async fn check_missing_slots(&self, raw_files: &[String]) -> Result<Vec<u64>> {
+        println!("Checking for missing slots");
         let mut slots: BTreeSet<u64> = BTreeSet::new();
 
         for file in raw_files {
@@ -355,24 +371,28 @@ impl Preprocessor {
     }
 
     async fn process(&self) -> Result<()> {
-        let folder = self.path.to_str().unwrap();
-        let raw_files = self.get_raw_files(folder);
-        let missing_slots = self.check_missing_slots(&raw_files)?;
+        let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
+        let raw_files = self.get_raw_files(folder.as_str()).await;
+        let missing_slots = self.check_missing_slots(&raw_files).await?;
+
+        println!("Number of missing slots: {}", missing_slots.len());
 
         if !missing_slots.is_empty() {
             self.reprocess_slots(&missing_slots).await?;
         }
 
-        self.merge_into_hourly(&raw_files, &format!("{}_hourly", folder))
-            .await
-            .expect("Failed to merge into hourly");
+        // self.merge_into_hourly(&raw_files, &format!("{}_hourly", folder))
+        //     .await
+        //     .expect("Failed to merge into hourly");
+
+        // self.cleanup(&raw_files).await.expect("Failed to cleanup");
 
         Ok(())
     }
 
-    fn cleanup(&self) -> Result<()> {
-        let folder = format!("{}/{}", self.path.to_str().unwrap(), self.date);
-        let zip_file = format!("{}/{}.zip", self.path.to_str().unwrap(), self.date);
+    async fn cleanup(&self, raw_files: &Vec<String>) -> Result<()> {
+        let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
+        let zip_file = format!("{}{}.zip", self.path.to_str().unwrap(), self.date);
 
         // Create the zip file.
         let file = File::create(&zip_file)?;
@@ -381,7 +401,6 @@ impl Preprocessor {
         let options: FileOptions<()> = FileOptions::default().compression_method(CompressionMethod::Deflated);
         let mut buffer = Vec::new();
 
-        let raw_files = self.get_raw_files(&folder);
         // Walk through the folder recursively.
         for entry in raw_files {
             let path = Path::new(&entry);
@@ -420,7 +439,7 @@ impl Preprocessor {
 
         let _ = self.process().await;
 
-        self.cleanup().expect("Failed to cleanup");
+        // self.cleanup().await.expect("Failed to cleanup");
     }
 }
 
@@ -460,7 +479,8 @@ pub fn get_database_url() -> String {
 
 async fn load_prices(path: &Path, date: &str) -> Result<Vec<KlineData>> {
     // check if SOL_PRICE file for given date exists in folder
-    let file = format!("{}/SOL_PRICE_{}.bin", path.display(), date);
+    let file = format!("SOL_{}.bin", date);
+    println!("Date: {}", date);
     let date_nd = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
     if !Path::new(&file).exists() {
         match fetch_klines_for_date("SOL", date_nd).await {
@@ -474,5 +494,10 @@ async fn load_prices(path: &Path, date: &str) -> Result<Vec<KlineData>> {
             }
         }
     }
-    Err(anyhow!("SOL price file already exists"))
+    
+    let file = File::open(file)?;
+    let reader = BufReader::new(file);
+    let prices: Vec<KlineData> = bincode::deserialize_from(reader)?;
+
+    Ok(prices)
 }
