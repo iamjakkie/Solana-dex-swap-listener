@@ -54,8 +54,8 @@ pub async fn fetch_klines_for_date(symbol: &str, date: NaiveDate) -> Result<Vec<
 pub fn store_klines(symbol: &str, date: &str, klines: &Vec<KlineData>) -> Result<()> {
     let filename = format!("{}_{}.bin", symbol, date);
     let encoded: Vec<u8> = bincode::serialize(klines)?;
-    let mut file = File::create(filename)?;
+    let mut file = File::create(filename.clone())?;
     file.write_all(&encoded)?;
-    println!("Stored {} klines for {}.", klines.len(), symbol);
+    println!("Storing {} klines for {} to {}", klines.len(), symbol, filename);
     Ok(())
 }
