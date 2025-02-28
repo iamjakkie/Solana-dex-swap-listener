@@ -11,18 +11,12 @@ use tokio::sync::{RwLock, Semaphore};
 use zmq;
 
 async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
-    let mut last_processed_slot: Option<u64> = None;
-
-    loop {
-        let latest_slot = get_latest_slot().await.expect("Failed to get latest slot");
-        println!("Latest slot: {}", latest_slot);
-
-        let start_slot = 315186613;
+        println!("Starting indexer");
+        let start_slot = 317233846;
 
         let max_concurrent_tasks = 25; // Limit to 10 concurrent tasks
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        if start_slot <= latest_slot {
-            for block_num in (start_slot..=317661530).rev() {
+            for block_num in (start_slot..317233847).rev() {
                 let permit = semaphore.clone().acquire_owned().await.unwrap(); // Acquire a permit
                 let publisher_clone = Arc::clone(&publisher_arc.clone());
                 tokio::spawn(async move {
@@ -31,6 +25,7 @@ async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
                     match block {
                         Ok(_) => {
                             let block = block.unwrap();
+                            println!("Processing block: {}", block.transactions.len());
 
                             println!("Processing block: {}", block_num);
                             // spawn a new thread to process_block
@@ -46,10 +41,7 @@ async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
                     }
                     drop(permit);
                 });
-                last_processed_slot = Some(block_num);
             }
-        }
-    }
 }
 
 fn bind_zmq(port: &str) -> zmq::Socket {
