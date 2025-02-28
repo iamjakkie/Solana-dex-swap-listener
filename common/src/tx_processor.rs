@@ -158,6 +158,9 @@ pub async fn process_tx(
                         &post_balances,
                         fee,
                     ) {
+                        if &signature == "4yzhtkeijRkejK64R3qwxfjwCVLdtecxhkJg5g6z7NjcAo88EFD4Jq6Kzskt8RHPytWCUgFgfvtGSo4gG5DaMPWk" {
+                            println!("{:?}", trade);
+                        }
                         trades.push(trade);
                     }
                 }

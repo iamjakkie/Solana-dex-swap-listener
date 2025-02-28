@@ -52,8 +52,8 @@ pub async fn process_block(
         timestamp_str, current_timestamp_str
     );
 
-    let file_path = format!("{}/{}/{}.avro", OUTPUT_PATH.as_str(), date_str, slot);
-    println!("Saving trades to: {}", file_path);
+    let file_path = format!("{}{}/{}.avro", OUTPUT_PATH.as_str(), date_str, slot);
+    // TODO: fix paths, incosistent across modules
 
     // save_trades_to_csv(&data, file_path.as_str()).await.expect("Failed to save trades to csv");
     save_trades_to_avro(&data, file_path.as_str())
