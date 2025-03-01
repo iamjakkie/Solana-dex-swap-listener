@@ -329,6 +329,8 @@ impl Preprocessor {
         //     // get metadata for tokens
         fs::create_dir_all(&folder)?;
 
+        let mut sol_price: Option<f64> = None;
+
         for file in raw_files {
             if file.ends_with(".csv") {
                 let mut rdr = csv::Reader::from_path(&file)?;
@@ -341,12 +343,19 @@ impl Preprocessor {
                         } else {
                             trade.quote_mint.clone()
                         };
+                    
+                    if sol_price.is_none() {
+                        sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await);
+                    }
 
                     let meta = self
                         .get_token_meta(&traded_token)
                         .await
                         .expect("Failed to get token meta");
-                    // get sol price
+                    
+                    
+
+
                 }
             } else if file.ends_with(".avro") {
                 let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
@@ -359,7 +368,9 @@ impl Preprocessor {
                         } else {
                             trade.quote_mint.clone()
                         };
-
+                    if sol_price.is_none() {
+                        sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await);
+                    }
                     let meta = self
                         .get_token_meta(&traded_token)
                         .await
@@ -374,6 +385,17 @@ impl Preprocessor {
         Ok(())
     }
 
+    async fn get_sol_price(&self, timestamp: u64) -> f64 {
+        let mut price = 0.0;
+        for kline in &self.sol_prices {
+            if kline.close_time > timestamp {
+                break;
+            }
+            price = (kline.close - kline.open) / 2.0;
+        }
+        price
+    }
+
     async fn process(&self) -> Result<()> {
         let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
         let raw_files = self.get_raw_files(folder.as_str()).await;
@@ -382,13 +404,13 @@ impl Preprocessor {
         println!("Number of missing slots: {}", missing_slots.len());
         // 61636
 
-        // if !missing_slots.is_empty() {
-        //     self.reprocess_slots(&missing_slots).await?;
-        // }
+        if !missing_slots.is_empty() {
+            self.reprocess_slots(&missing_slots).await?;
+        }
 
-        // self.merge_into_hourly(&raw_files, &format!("{}_hourly", folder))
-        //     .await
-        //     .expect("Failed to merge into hourly");
+        self.merge_into_hourly(&raw_files, &format!("{}_hourly", folder))
+            .await
+            .expect("Failed to merge into hourly");
 
         // self.cleanup(&raw_files).await.expect("Failed to cleanup");
 
