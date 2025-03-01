@@ -282,3 +282,4 @@ impl From<KlineRecord> for KlineData {
         }
     }
 }
+

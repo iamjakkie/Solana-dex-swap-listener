@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
-use chrono::NaiveDate;
+use avro_rs::{types::{Record, Value}, Codec, Schema, Writer};
+use chrono::{NaiveDate, NaiveDateTime, Datelike, Timelike};
 use common::{
     block_processor::process_block, models::{KlineData, TradeData}, pricer::{fetch_klines_for_date, store_klines}, rpc_client::fetch_block_with_version
 };
@@ -7,21 +8,40 @@ use common::{
 use lazy_static::lazy_static;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
-use zip::{write::FileOptions, CompressionMethod, ZipWriter};
+use zip::{write::FileOptions, CompressionMethod};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File}, io::{BufReader, BufWriter, Read, Write}, path::{Path, PathBuf}, sync::Arc, time::Duration
+    collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File, OpenOptions}, io::{BufReader, BufWriter, Read, Write}, path::{Path, PathBuf}, sync::Arc, time::Duration
 };
 use tokio::{
     sync::{Mutex, Semaphore},
     time,
 };
 
-use crate::models::TokenMeta;
+use crate::models::{TokenMeta, ProcessedTrade};
 
 lazy_static!(
     // SOLSCAN API KEY FROM ENV
     pub static ref SOLSCAN_API_KEY: String = env::var("SOLSCAN_API_KEY").expect("SOLSCAN_API_KEY must be set");
 );
+
+lazy_static::lazy_static! {
+    pub static ref AVRO_SCHEMA: Schema = Schema::parse_str(r#"
+    {
+      "type": "record",
+      "name": "ProcessedTrade",
+      "fields": [
+        { "name": "block_date", "type": "string" },
+        { "name": "block_time", "type": "long" },
+        { "name": "block_slot", "type": "long" },
+        { "name": "token", "type": "string" },
+        { "name": "price", "type": "double" },
+        { "name": "usd_price", "type": "double" },
+        { "name": "volume", "type": "double" },
+        { "name": "market_cap", "type": ["null", "double"], "default": null }
+      ]
+    }
+    "#).expect("Failed to parse Avro schema");
+}
 
 pub struct Preprocessor {
     pub path: PathBuf,
@@ -29,6 +49,7 @@ pub struct Preprocessor {
     pub db_client: tokio_postgres::Client,
     token_meta_map: Arc<Mutex<HashMap<String, TokenMeta>>>,
     sol_prices: Vec<KlineData>,
+    hourly_writers: Mutex<HashMap<String, Writer<'static, BufWriter<File>>>>,
 }
 
 impl Preprocessor {
@@ -62,6 +83,7 @@ impl Preprocessor {
             db_client: client,
             token_meta_map: Arc::new(Mutex::new(HashMap::new())),
             sol_prices: prices,
+            hourly_writers: Mutex::new(HashMap::new()),
         };
 
         preprocessor
@@ -257,12 +279,12 @@ impl Preprocessor {
         Ok(())
     }
 
-    async fn get_token_meta(&self, token_address: &str) -> Result<()> {
+    async fn get_token_meta(&self, token_address: &str) -> Result<TokenMeta> {
         // try to find in self.token_meta_map first
         {
             let token_meta_map = self.token_meta_map.lock().await;
             if let Some(token_meta) = token_meta_map.get(token_address) {
-                return Ok(());
+                return Ok(token_meta.clone());
             }
         }
 
@@ -320,61 +342,28 @@ impl Preprocessor {
         let mut token_meta_map = self.token_meta_map.lock().await;
         token_meta_map.insert(token_meta.contract_address.clone(), token_meta.clone());
 
-        Ok(())
+        Ok(token_meta)
     }
 
-    async fn merge_into_hourly(&self, raw_files: &Vec<String>, folder: &String) -> Result<()> {
-        //     // combine into hourly
-        //     // insert to db empty files
-        //     // get metadata for tokens
-        fs::create_dir_all(&folder)?;
-
-        let mut sol_price: Option<f64> = None;
+    async fn merge_into_hourly(&self, raw_files: &Vec<String>) -> Result<()> {
+        let output_avro_path = format!("{}{}_hourly", self.path.to_str().unwrap(), self.date);
+        fs::create_dir_all(&output_avro_path)?;
 
         for file in raw_files {
             if file.ends_with(".csv") {
                 let mut rdr = csv::Reader::from_path(&file)?;
                 for result in rdr.deserialize::<TradeData>() {
                     let trade = result?;
-                    // get token which is not So11111111111111111111111111111111111111112
-                    let traded_token =
-                        if trade.base_mint != "So11111111111111111111111111111111111111112" {
-                            trade.base_mint.clone()
-                        } else {
-                            trade.quote_mint.clone()
-                        };
+                    self.process_trade(trade).await?;
                     
-                    if sol_price.is_none() {
-                        sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await);
-                    }
-
-                    let meta = self
-                        .get_token_meta(&traded_token)
-                        .await
-                        .expect("Failed to get token meta");
-                    
-                    
-
-
                 }
             } else if file.ends_with(".avro") {
                 let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
                 for result in rdr {
                     let value = result?;
                     let trade: TradeData = avro_rs::from_value(&value)?;
-                    let traded_token =
-                        if trade.base_mint != "So11111111111111111111111111111111111111112" {
-                            trade.base_mint.clone()
-                        } else {
-                            trade.quote_mint.clone()
-                        };
-                    if sol_price.is_none() {
-                        sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await);
-                    }
-                    let meta = self
-                        .get_token_meta(&traded_token)
-                        .await
-                        .expect("Failed to get token meta");
+                    self.process_trade(trade).await?;
+                    
                 }
             } else {
                 continue;
@@ -383,6 +372,86 @@ impl Preprocessor {
         }
 
         Ok(())
+    }
+
+    async fn process_trade(&self, trade: TradeData) -> Result<()> {
+        let traded_token: String;
+        let token_sol_price: f64;
+        let sol_amount;
+        if trade.base_mint != "So11111111111111111111111111111111111111112" {
+            traded_token = trade.base_mint.clone();
+            token_sol_price = trade.quote_amount / trade.base_amount;
+            sol_amount = trade.quote_amount;
+        } else {
+            traded_token = trade.quote_mint.clone();
+            token_sol_price = trade.base_amount / trade.quote_amount;
+            sol_amount = trade.base_amount;
+        }
+
+        let sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await).expect("Failed to get SOL price");
+        let meta = self
+            .get_token_meta(&traded_token)
+            .await
+            .expect("Failed to get token meta");
+
+        let supply = match meta.total_supply {
+            Some(supply) => Some(supply * 10f64.powi(-meta.decimals) * token_sol_price * sol_price),
+            None => None,
+        };
+
+        let processed_trade = ProcessedTrade {
+            block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
+            block_time: trade.block_time,
+            block_slot: trade.block_slot,
+            token: traded_token,
+            price: token_sol_price,
+            usd_price: token_sol_price * sol_price,
+            volume: sol_amount * sol_price,
+            market_cap: supply,
+        };
+
+        let dt = NaiveDateTime::from_timestamp_opt(trade.block_time, 0)
+            .expect("Invalid timestamp");
+        let hour_key = format!(
+            "{:04}-{:02}-{:02}-{:02}",
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour()
+        );
+
+        let mut record = Record::new(&AVRO_SCHEMA).expect("Failed to create Avro record");
+            record.put("block_date", processed_trade.block_date.clone());
+            record.put("block_time", processed_trade.block_time);
+            record.put("block_slot", processed_trade.block_slot as i64);
+            record.put("token", processed_trade.token.clone());
+            record.put("price", processed_trade.price);
+            record.put("usd_price", processed_trade.usd_price);
+            record.put("volume", processed_trade.volume);
+            // If market_cap is None, store null.
+            match processed_trade.market_cap {
+                Some(val) => record.put("market_cap", val),
+                None => record.put("market_cap", Value::Null),
+            }
+
+        let output_avro_path = format!("{}{}_hourly/{}.avro", self.path.to_str().unwrap(), self.date, hour_key);
+
+        let mut writers = self.hourly_writers.lock().await;
+        let writer = writers.entry(hour_key.clone()).or_insert_with(|| {
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&output_avro_path)
+                .expect("Failed to open output file");
+            Writer::with_codec(&AVRO_SCHEMA, BufWriter::new(file), Codec::Deflate)
+        });
+
+        writer.append(record)?;
+
+
+        Ok(())
+
     }
 
     async fn get_sol_price(&self, timestamp: u64) -> f64 {
@@ -408,10 +477,7 @@ impl Preprocessor {
             self.reprocess_slots(&missing_slots).await?;
         }
 
-        self.merge_into_hourly(&raw_files, &format!("{}_hourly", folder))
-            .await
-            .expect("Failed to merge into hourly");
-
+        self.merge_into_hourly(&raw_files).await?;
         // self.cleanup(&raw_files).await.expect("Failed to cleanup");
 
         Ok(())

@@ -12,3 +12,23 @@ pub struct TokenMeta {
     pub twitter: Option<String>,
     pub website: Option<String>,
 }
+
+#[derive(Debug, Clone)]
+pub struct ProcessedTrade {
+    /// The date of the block (e.g. "2025-01-30") for grouping and logging.
+    pub block_date: String,
+    /// Block timestamp (in seconds or milliseconds, as per your design).
+    pub block_time: i64,
+    /// Block slot number.
+    pub block_slot: u64,
+    /// The token being traded – the token that isn’t SOL.
+    pub token: String,
+    /// The derived price of the traded token (e.g. computed as quote_amount / base_amount).
+    pub price: f64,
+    /// The USD price computed as token_price multiplied by the SOL price at the trade time.
+    pub usd_price: f64,
+    /// The traded volume in units of the traded token.
+    pub volume: f64,
+    /// The token's market capitalization computed as token_price * total_supply (if available).
+    pub market_cap: Option<f64>,
+}
