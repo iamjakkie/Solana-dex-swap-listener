@@ -202,7 +202,7 @@ impl Preprocessor {
             lines = rdr.count();
         }
 
-        if lines < 100 {
+        if lines < 50 {
             return false;
         } else {
             return true;
@@ -220,6 +220,8 @@ impl Preprocessor {
                     continue;
                 } else {
                     slots.insert(slot);
+                    // delete corrupted file
+                    fs::remove_file(file)?;
                 }
             }
         }
@@ -238,6 +240,7 @@ impl Preprocessor {
     }
 
     async fn reprocess_slots(&self, missing_slots: &Vec<u64>) -> Result<()> {
+        // 
         let max_concurrent_tasks = 10;
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
         for slot in missing_slots.clone() {
@@ -245,7 +248,8 @@ impl Preprocessor {
             tokio::spawn(async move {
                 let block = fetch_block_with_version(slot)
                     .await
-                    .expect("Failed to fetch block");
+                    .expect(format!("Failed to fetch block {}", slot).as_str());
+                println!("Reprocessing slot: {}", slot);
                 process_block(block, None).await;
                 drop(permit);
             });
@@ -376,10 +380,11 @@ impl Preprocessor {
         let missing_slots = self.check_missing_slots(&raw_files).await?;
 
         println!("Number of missing slots: {}", missing_slots.len());
+        // 61636
 
-        if !missing_slots.is_empty() {
-            self.reprocess_slots(&missing_slots).await?;
-        }
+        // if !missing_slots.is_empty() {
+        //     self.reprocess_slots(&missing_slots).await?;
+        // }
 
         // self.merge_into_hourly(&raw_files, &format!("{}_hourly", folder))
         //     .await
