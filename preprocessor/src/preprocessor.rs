@@ -37,7 +37,7 @@ lazy_static::lazy_static! {
         { "name": "price", "type": "double" },
         { "name": "usd_price", "type": "double" },
         { "name": "volume", "type": "double" },
-        { "name": "market_cap", "type": ["null", "double"], "default": null }
+        { "name": "market_cap", "type": "double" }
       ]
     }
     "#).expect("Failed to parse Avro schema");
@@ -355,22 +355,32 @@ impl Preprocessor {
         fs::create_dir_all(&output_avro_path)?;
 
         for file in fs::read_dir(&input_path)? {
+            println!("Processing file: {:?}", file);
             let file = file?.path().to_str().unwrap().to_string();
             if file.ends_with(".csv") {
+                println!("Processing CSV file: {}", file);
                 let mut rdr = csv::Reader::from_path(&file)?;
                 for result in rdr.deserialize::<TradeData>() {
                     let trade = result?;
-                    self.process_trade(trade).await?;
+                    if let Err(e) = self.process_trade(trade).await {
+                        println!("Error processing CSV trade: {}", e);
+                    }
+                    continue;
                     
                 }
             } else if file.ends_with(".avro") {
+                println!("Processing Avro file: {}", file);
                 let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
                 for result in rdr {
                     let value = result?;
                     let trade: TradeData = avro_rs::from_value(&value)?;
-                    self.process_trade(trade).await?;
+                    if let Err(e) = self.process_trade(trade).await {
+                        println!("Error processing Avro trade: {}", e);
+                        continue;
+                    }
                 }
             } else {
+                println!("Skipping file: {}", file);
                 continue;
             }
 
@@ -400,8 +410,8 @@ impl Preprocessor {
             .expect("Failed to get token meta");
 
         let supply = match meta.total_supply {
-            Some(supply) => Some(supply * 10f64.powi(-meta.decimals) * token_sol_price * sol_price),
-            None => None,
+            Some(supply) => supply * 10f64.powi(-meta.decimals) * token_sol_price * sol_price,
+            None => 0.0,
         };
 
         let processed_trade = ProcessedTrade {
@@ -414,6 +424,8 @@ impl Preprocessor {
             volume: sol_amount * sol_price,
             market_cap: supply,
         };
+
+        println!("Processed trade: {:?}", processed_trade);
 
         let dt = NaiveDateTime::from_timestamp_opt(trade.block_time, 0)
             .expect("Invalid timestamp");
@@ -433,11 +445,9 @@ impl Preprocessor {
             record.put("price", processed_trade.price);
             record.put("usd_price", processed_trade.usd_price);
             record.put("volume", processed_trade.volume);
-            // If market_cap is None, store null.
-            match processed_trade.market_cap {
-                Some(val) => record.put("market_cap", val),
-                None => record.put("market_cap", Value::Null),
-            }
+            record.put("market_cap", processed_trade.market_cap);
+
+        println!("Record {:?}", record);
 
         let output_avro_path = format!("{}{}_hourly/{}.avro", self.path.to_str().unwrap(), self.date, hour_key);
 
@@ -452,7 +462,9 @@ impl Preprocessor {
             Writer::with_codec(&AVRO_SCHEMA, BufWriter::new(file), Codec::Deflate)
         });
 
-        writer.append(record)?;
+        if let Err(e) = writer.append(record) {
+            println!("Error appending record: {}", e);
+        }
 
         Ok(())
 

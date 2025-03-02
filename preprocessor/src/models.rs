@@ -13,7 +13,7 @@ pub struct TokenMeta {
     pub website: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ProcessedTrade {
     /// The date of the block (e.g. "2025-01-30") for grouping and logging.
     pub block_date: String,
@@ -30,5 +30,5 @@ pub struct ProcessedTrade {
     /// The traded volume in units of the traded token.
     pub volume: f64,
     /// The token's market capitalization computed as token_price * total_supply (if available).
-    pub market_cap: Option<f64>,
+    pub market_cap: f64,
 }
