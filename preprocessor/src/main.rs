@@ -159,6 +159,9 @@ async fn main() {
     let preprocessor = preprocessor::Preprocessor::new(path, "2025-01-30").await;
     println!("Preprocessor {:?}", preprocessor.path);
     let preprocessor = Arc::new(preprocessor);
-    
+    // time it 
+    let start = std::time::Instant::now();
     preprocessor.run().await; 
+    let duration = start.elapsed();
+    println!("Time elapsed in running preprocessor is: {:?}", duration);
 }

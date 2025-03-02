@@ -304,6 +304,10 @@ impl Preprocessor {
 
         let data = res.get("data").expect("Failed to get data");
 
+        let decimals = data.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
+        let supply = data.get("supply").and_then(|v| v.as_str()).expect("Couldn't get supply").parse::<f64>().unwrap();
+        let total_supply = Some(supply / 10f64.powi(decimals));
+
         let token_meta = TokenMeta {
             contract_address: token_address.to_string(),
             token_name: data
@@ -316,15 +320,15 @@ impl Preprocessor {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            decimals: data.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as i32,
-            total_supply: data.get("totalSupply").and_then(|v| v.as_f64()),
+            decimals: decimals,
+            total_supply: total_supply,
             creator: data
                 .get("creator")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
             created_time: data
-                .get("createdTime")
+                .get("created_time")
                 .and_then(|v| v.as_u64())
                 .map(|v| v as i64)
                 .unwrap_or(0),
@@ -345,11 +349,13 @@ impl Preprocessor {
         Ok(token_meta)
     }
 
-    async fn merge_into_hourly(&self, raw_files: &Vec<String>) -> Result<()> {
+    async fn merge_into_hourly(&self) -> Result<()> {
+        let input_path = format!("{}{}", self.path.to_str().unwrap(), self.date);
         let output_avro_path = format!("{}{}_hourly", self.path.to_str().unwrap(), self.date);
         fs::create_dir_all(&output_avro_path)?;
 
-        for file in raw_files {
+        for file in fs::read_dir(&input_path)? {
+            let file = file?.path().to_str().unwrap().to_string();
             if file.ends_with(".csv") {
                 let mut rdr = csv::Reader::from_path(&file)?;
                 for result in rdr.deserialize::<TradeData>() {
@@ -363,7 +369,6 @@ impl Preprocessor {
                     let value = result?;
                     let trade: TradeData = avro_rs::from_value(&value)?;
                     self.process_trade(trade).await?;
-                    
                 }
             } else {
                 continue;
@@ -449,7 +454,6 @@ impl Preprocessor {
 
         writer.append(record)?;
 
-
         Ok(())
 
     }
@@ -468,16 +472,16 @@ impl Preprocessor {
     async fn process(&self) -> Result<()> {
         let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
         let raw_files = self.get_raw_files(folder.as_str()).await;
-        let missing_slots = self.check_missing_slots(&raw_files).await?;
+        // let missing_slots = self.check_missing_slots(&raw_files).await?;
 
-        println!("Number of missing slots: {}", missing_slots.len());
+        // println!("Number of missing slots: {}", missing_slots.len());
         // 61636
 
-        if !missing_slots.is_empty() {
-            self.reprocess_slots(&missing_slots).await?;
-        }
+        // if !missing_slots.is_empty() {
+        //     self.reprocess_slots(&missing_slots).await?;
+        // }
 
-        self.merge_into_hourly(&raw_files).await?;
+        self.merge_into_hourly().await?;
         // self.cleanup(&raw_files).await.expect("Failed to cleanup");
 
         Ok(())
