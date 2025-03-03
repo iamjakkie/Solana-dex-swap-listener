@@ -8,6 +8,7 @@ use common::{
 use lazy_static::lazy_static;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
+use tokio_retry::{strategy::ExponentialBackoff, Retry};
 use zip::{write::FileOptions, CompressionMethod};
 use std::{
     collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File, OpenOptions}, io::{BufReader, BufWriter, Read, Write}, path::{Path, PathBuf}, sync::Arc, time::Duration
@@ -136,25 +137,34 @@ impl Preprocessor {
 
         let mut query = "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ".to_string();
 
-        for contract in new_tokens {
-            let meta = token_meta_map.get(&contract).unwrap();
+        // if new_tokens index % 500 == 0 send query
+
+        
+        
+        for (ind, contract) in new_tokens.iter().enumerate() {
+            let meta = token_meta_map.get(contract).unwrap();
             query.push_str(&format!(
                 "('{}', '{}', '{}', {}, {}, '{}', {}, '{}', '{}'),",
-                meta.contract_address,
-                meta.token_name,
-                meta.token_symbol,
+                meta.contract_address.replace("'", "''"),
+                meta.token_name.replace("'", "''"),
+                meta.token_symbol.replace("'", "''"),
                 meta.decimals,
                 meta.total_supply.unwrap_or(0.0),
-                meta.creator,
+                meta.creator.replace("'", "''"),
                 meta.created_time,
-                meta.twitter.as_deref().unwrap_or(""),
-                meta.website.as_deref().unwrap_or("")
+                meta.twitter.as_deref().unwrap_or("").replace("'", "''"),
+                meta.website.as_deref().unwrap_or("").replace("'", "''")
             ));
+
+            if ind % 500 == 0 {
+                query.pop(); // Remove trailing comma
+                self.db_client.execute(query.as_str(), &[]).await?;
+                query = "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ".to_string();
+            }
         }
 
         query.pop(); // Remove trailing comma
 
-        println!("{}", query);
         self.db_client.execute(query.as_str(), &[]).await?;
 
         println!("Token meta successfully dumped to DB at");
@@ -293,16 +303,27 @@ impl Preprocessor {
             "https://pro-api.solscan.io/v2.0/token/meta?address={}",
             token_address
         );
-        let client = reqwest::Client::new();
-        let res = client
-            .get(&url)
-            .header("token", &*SOLSCAN_API_KEY)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await?;
+        let retry_strategy = ExponentialBackoff::from_millis(100).take(5);
 
-        let data = res.get("data").expect("Failed to get data");
+        let res: serde_json::Value = Retry::spawn(retry_strategy, || async {
+            let client = reqwest::Client::new();
+            let response = client.get(&url)
+                .header("token", &*SOLSCAN_API_KEY)
+                .send()
+                .await?;
+            response.json::<serde_json::Value>().await
+        }).await?;
+
+        // let client = reqwest::Client::new();
+        // let res = client
+        //     .get(&url)
+        //     .header("token", &*SOLSCAN_API_KEY)
+        //     .send()
+        //     .await?
+        //     .json::<serde_json::Value>()
+        //     .await?;
+
+        let data = res.get("data").ok_or_else(|| anyhow::anyhow!("Failed to get data"))?;
 
         let decimals = data.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
         let supply = data.get("supply").and_then(|v| v.as_str()).expect("Couldn't get supply").parse::<f64>().unwrap();
@@ -355,10 +376,8 @@ impl Preprocessor {
         fs::create_dir_all(&output_avro_path)?;
 
         for file in fs::read_dir(&input_path)? {
-            println!("Processing file: {:?}", file);
             let file = file?.path().to_str().unwrap().to_string();
             if file.ends_with(".csv") {
-                println!("Processing CSV file: {}", file);
                 let mut rdr = csv::Reader::from_path(&file)?;
                 for result in rdr.deserialize::<TradeData>() {
                     let trade = result?;
@@ -369,7 +388,6 @@ impl Preprocessor {
                     
                 }
             } else if file.ends_with(".avro") {
-                println!("Processing Avro file: {}", file);
                 let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
                 for result in rdr {
                     let value = result?;
@@ -395,11 +413,11 @@ impl Preprocessor {
         let sol_amount;
         if trade.base_mint != "So11111111111111111111111111111111111111112" {
             traded_token = trade.base_mint.clone();
-            token_sol_price = trade.quote_amount / trade.base_amount;
+            token_sol_price = (trade.quote_amount / trade.base_amount).abs();
             sol_amount = trade.quote_amount;
         } else {
             traded_token = trade.quote_mint.clone();
-            token_sol_price = trade.base_amount / trade.quote_amount;
+            token_sol_price = (trade.base_amount / trade.quote_amount).abs();
             sol_amount = trade.base_amount;
         }
 
@@ -409,8 +427,11 @@ impl Preprocessor {
             .await
             .expect("Failed to get token meta");
 
+
         let supply = match meta.total_supply {
-            Some(supply) => supply * 10f64.powi(-meta.decimals) * token_sol_price * sol_price,
+            Some(supply) => {
+                supply / 10f64.powi(-meta.decimals) * token_sol_price * sol_price
+            },
             None => 0.0,
         };
 
@@ -425,7 +446,6 @@ impl Preprocessor {
             market_cap: supply,
         };
 
-        println!("Processed trade: {:?}", processed_trade);
 
         let dt = NaiveDateTime::from_timestamp_opt(trade.block_time, 0)
             .expect("Invalid timestamp");
@@ -447,7 +467,6 @@ impl Preprocessor {
             record.put("volume", processed_trade.volume);
             record.put("market_cap", processed_trade.market_cap);
 
-        println!("Record {:?}", record);
 
         let output_avro_path = format!("{}{}_hourly/{}.avro", self.path.to_str().unwrap(), self.date, hour_key);
 
@@ -472,11 +491,12 @@ impl Preprocessor {
 
     async fn get_sol_price(&self, timestamp: u64) -> f64 {
         let mut price = 0.0;
+        let timestamp = timestamp * 1_000_000;
         for kline in &self.sol_prices {
             if kline.close_time > timestamp {
                 break;
             }
-            price = (kline.close - kline.open) / 2.0;
+            price = (kline.close + kline.open) / 2.0;
         }
         price
     }
