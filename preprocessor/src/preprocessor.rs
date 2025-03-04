@@ -100,7 +100,6 @@ impl Preprocessor {
         let mut interval = time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
-            println!("DUMP");
             if let Err(e) = self.dump_token_meta_to_db().await {
                 println!("Error dumping token meta to DB: {}", e);
             }
@@ -375,7 +374,12 @@ impl Preprocessor {
         let output_avro_path = format!("{}{}_hourly", self.path.to_str().unwrap(), self.date);
         fs::create_dir_all(&output_avro_path)?;
 
-        for file in fs::read_dir(&input_path)? {
+        let files = fs::read_dir(&input_path)?.count();
+
+        for (id, file) in fs::read_dir(&input_path)?.into_iter().enumerate() {
+            if id % 10000 == 0 {
+                println!("Processed {}/{} files", id, files);
+            }
             let file = file?.path().to_str().unwrap().to_string();
             if file.ends_with(".csv") {
                 let mut rdr = csv::Reader::from_path(&file)?;
@@ -424,8 +428,7 @@ impl Preprocessor {
         let sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await).expect("Failed to get SOL price");
         let meta = self
             .get_token_meta(&traded_token)
-            .await
-            .expect("Failed to get token meta");
+            .await?;
 
 
         let supply = match meta.total_supply {
@@ -503,20 +506,63 @@ impl Preprocessor {
 
     async fn process(&self) -> Result<()> {
         let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
+        // TODO: flip logic upside down
+        // start with range for this date (expected) using min and max from folder
+        // trigger number of threads to process blocks
+        // 1. check if block is valid
+        // 2. augment block with additional data
+        // 3. save it back to processed folder
         let raw_files = self.get_raw_files(folder.as_str()).await;
-        // let missing_slots = self.check_missing_slots(&raw_files).await?;
+        let min = extract_slot_from_filename(raw_files.first().unwrap()).unwrap();
+        let max = extract_slot_from_filename(raw_files.last().unwrap()).unwrap();
 
-        // println!("Number of missing slots: {}", missing_slots.len());
-        // 61636
-
-        // if !missing_slots.is_empty() {
-        //     self.reprocess_slots(&missing_slots).await?;
-        // }
-
-        self.merge_into_hourly().await?;
-        // self.cleanup(&raw_files).await.expect("Failed to cleanup");
-
+        let slots = (min..=max).collect::<Vec<u64>>();
+        let max_concurrent_tasks = 10;
+        let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
+        for slot in slots {
+            let permit = semaphore.clone().acquire_owned().await?;
+            tokio::spawn(async move {
+                self.process_slot(slot).await;
+                drop(permit);
+            });
+        }
         Ok(())
+    }
+
+    async fn process_slot(&self, slot: u64) {
+        // 1. Check if slot.csv and slot.avro exist
+
+        let slot_str = slot.to_string();
+        let csv_file = format!("{}{}/{}.csv", self.path.to_str().unwrap(), self.date, slot_str);
+        let avro_file = format!("{}{}/{}.avro", self.path.to_str().unwrap(), self.date, slot_str);
+
+        if Path::new(&csv_file).exists() && Path::new(&avro_file).exists() {
+            // delete csv file, validate avro file
+            fs::remove_file(&csv_file).expect("Failed to remove csv file");
+            if self.verify_slot(&avro_file) {
+                return;
+            }
+        } else if Path::new(&csv_file).exists() {
+            // validate csv file
+            if self.verify_slot(&csv_file) {
+                return;
+            }
+        } else if Path::new(&avro_file).exists() {
+            // validate avro file
+            if self.verify_slot(&avro_file) {
+                return;
+            }
+        } else {
+            // preprocess block
+            let block = fetch_block_with_version(slot)
+                .await
+                .expect(format!("Failed to fetch block {}", slot).as_str());
+            process_block(block, None).await;
+        }
+    }
+
+    async fn augment_slot(&self, path: &str) {
+        
     }
 
     async fn cleanup(&self, raw_files: &Vec<String>) -> Result<()> {
