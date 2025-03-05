@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::{
     sync::{Arc, Mutex},
     thread::current,
@@ -20,7 +21,7 @@ use std::time::Duration;
 pub async fn process_block(
     block: EncodedConfirmedBlock,
     publisher_clone: Option<Arc<Mutex<zmq::Socket>>>,
-) {
+) -> Result<()> {
     let timestamp = block.block_time.expect("Block time not found");
     let slot = block.parent_slot;
     let mut data: Vec<TradeData> = vec![];
@@ -71,4 +72,6 @@ pub async fn process_block(
     // let sock = publisher_clone.lock().unwrap();
     // sock.send("", zmq::SNDMORE).unwrap(); // optional topic
     // sock.send(&json_str, 0).unwrap();
+
+    Ok(())
 }

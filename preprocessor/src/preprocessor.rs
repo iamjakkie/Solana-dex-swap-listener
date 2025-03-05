@@ -15,7 +15,7 @@ use std::{
 };
 use tokio::{
     sync::{Mutex, Semaphore},
-    time,
+    time::{self, sleep},
 };
 
 use crate::models::{TokenMeta, ProcessedTrade};
@@ -324,6 +324,8 @@ impl Preprocessor {
 
         let data = res.get("data").ok_or_else(|| anyhow::anyhow!("Failed to get data"))?;
 
+        println!("Data: {:?}", data);
+
         let decimals = data.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
         let supply = data.get("supply").and_then(|v| v.as_str()).expect("Couldn't get supply").parse::<f64>().unwrap();
         let total_supply = Some(supply / 10f64.powi(decimals));
@@ -370,8 +372,8 @@ impl Preprocessor {
     }
 
     async fn process_file(&self, file_path: &str) -> Result<()> {
-        let output_avro_path = format!("{}{}_processed", self.path.to_str().unwrap(), self.date);
-        fs::create_dir_all(&output_avro_path)?;
+        let slot = extract_slot_from_filename(file_path).unwrap();
+        let output_avro_path = format!("{}{}_processed/{}.avro", self.path.to_str().unwrap(), self.date, slot);
         
         let mut trades: Vec<TradeData> = vec![];
 
@@ -384,12 +386,17 @@ impl Preprocessor {
             let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
             trades = rdr.map(|r| avro_rs::from_value(&r.unwrap()).unwrap()).collect();
         }
+
         self.process_trades(output_avro_path.as_str(), &trades).await?;
 
         Ok(())
     }
 
     async fn process_trades(&self, output_file: &str, trades: &Vec<TradeData>) -> Result<()> {
+        if trades.is_empty() {
+            return Ok(());
+        }
+
         let file = OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -424,6 +431,9 @@ impl Preprocessor {
                 None => 0.0,
             };
 
+            println!("Supply for {}: {}", traded_token, supply);
+            println!("Meta: {:?}", meta);
+
             let processed_trade = ProcessedTrade {
                 block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
                 block_time: trade.block_time,
@@ -448,6 +458,8 @@ impl Preprocessor {
             writer.append(record).expect("Failed to append record");
         }
 
+        writer.flush().expect("Failed to flush writer");
+
         Ok(())
 
     }
@@ -467,25 +479,35 @@ impl Preprocessor {
     async fn process(self: Arc<Self>) -> Result<()> {
         let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
 
+        let processed_folder = format!("{}{}_processed", self.path.to_str().unwrap(), self.date);
+        fs::create_dir_all(&processed_folder)?;
+
         // TODO: make functions out of preprocessor
         let raw_files = self.get_raw_files(folder.as_str()).await;
         let min = extract_slot_from_filename(raw_files.first().unwrap()).unwrap();
+        println!("Min: {}", min);
         let max = extract_slot_from_filename(raw_files.last().unwrap()).unwrap();
+        println!("Max: {}", max);
+
+        let min = 317233807;
+        let max = 317233807;
+
 
         let slots = (min..=max).collect::<Vec<u64>>();
-        let max_concurrent_tasks = 10;
+        let max_concurrent_tasks = 20;
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
         for slot in slots {
             let permit = semaphore.clone().acquire_owned().await?;
+            let self_clone = Arc::clone(&self);
             tokio::spawn(async move {
-                self.process_slot(slot).await;
+                self_clone.process_slot(slot).await;
                 drop(permit);
             });
         }
         Ok(())
     }
 
-    async fn process_slot(&self, slot: u64) {
+    async fn process_slot(&self, slot: u64) -> Result<()>{
         // 1. Check if slot.csv and slot.avro exist
 
         let slot_str = slot.to_string();
@@ -496,12 +518,12 @@ impl Preprocessor {
 
         let mut is_verified = false;
 
-        if Path::new(&csv_file).exists() && Path::new(&avro_file).exists() {
+        if Path::new(&csv_file).exists() && Path::new(&avro_file.clone()).exists() {
             // delete csv file, validate avro file
             fs::remove_file(&csv_file).expect("Failed to remove csv file");
-            if self.verify_slot(&avro_file) {
+            if self.verify_slot(&avro_file.clone()) {
                 is_verified = true;
-                file_path = avro_file;
+                file_path = avro_file.clone();
             }
         } else if Path::new(&csv_file).exists() {
             // validate csv file
@@ -509,31 +531,45 @@ impl Preprocessor {
                 is_verified = true;
                 file_path = csv_file;
             }
-        } else if Path::new(&avro_file).exists() {
+        } else if Path::new(&avro_file.clone()).exists() {
             // validate avro file
-            if self.verify_slot(&avro_file) {
+            if self.verify_slot(&avro_file.clone()) {
                 is_verified = true;
-                file_path = avro_file;
+                file_path = avro_file.clone();
             }
-        } else {
-            // preprocess block
-            let block = fetch_block_with_version(slot)
-                .await
-                .expect(format!("Failed to fetch block {}", slot).as_str());
-            process_block(block, None).await;
-            if self.verify_slot(&avro_file) {
-                is_verified = true;
-                file_path = avro_file;
-            }
-        }
+        } 
 
         if !is_verified {
-            println!("Slot {} is corrupted", slot);
-            return;
+            for attempt in 1..=3 {
+                let block = match fetch_block_with_version(slot).await {
+                    Ok(block) => block,
+                    Err(e) => {
+                        println!("Failed to fetch block: {}", e);
+                        sleep(Duration::from_millis(500)).await;
+                        continue;
+                    }
+                };
+                if let Err(e) = process_block(block, None).await {
+                    eprintln!("Failed to process block {} on attempt {}: {}", slot, attempt, e);
+                }
+                if self.verify_slot(&avro_file) {
+                    is_verified = true;
+                    file_path = avro_file.clone();
+                    println!("Slot {} verified on attempt {}", slot, attempt);
+                    break;
+                } else {
+                    println!("Verification failed for slot {} on attempt {}", slot, attempt);
+                }
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        if !is_verified {
+            return Err(anyhow!("Failed to verify slot {} after 3 attempts", slot));
         }
 
-        self.process_file(&file_path.as_str()).await.expect("Failed to process file");
+        self.process_file(&file_path).await.expect("Failed to process file");
 
+        Ok(())
     }
 
     async fn augment_slot(&self, path: &str) {
@@ -594,12 +630,9 @@ impl Preprocessor {
 }
 
 fn extract_slot_from_filename(filename: &str) -> Option<u64> {
-    filename
-        .rsplit('/')
-        .next()?
-        .strip_suffix(".csv")?
-        .parse::<u64>()
-        .ok()
+    // match based on the file extension
+    let f = Path::new(filename).file_stem()?.to_str()?;
+    f.parse::<u64>().ok()
 }
 
 fn list_directories(path: &str) -> Vec<String> {
