@@ -369,123 +369,83 @@ impl Preprocessor {
         Ok(token_meta)
     }
 
-    async fn merge_into_hourly(&self) -> Result<()> {
-        let input_path = format!("{}{}", self.path.to_str().unwrap(), self.date);
-        let output_avro_path = format!("{}{}_hourly", self.path.to_str().unwrap(), self.date);
+    async fn process_file(&self, file_path: &str) -> Result<()> {
+        let output_avro_path = format!("{}{}_processed", self.path.to_str().unwrap(), self.date);
         fs::create_dir_all(&output_avro_path)?;
+        
+        let mut trades: Vec<TradeData> = vec![];
 
-        let files = fs::read_dir(&input_path)?.count();
-
-        for (id, file) in fs::read_dir(&input_path)?.into_iter().enumerate() {
-            if id % 10000 == 0 {
-                println!("Processed {}/{} files", id, files);
-            }
-            let file = file?.path().to_str().unwrap().to_string();
-            if file.ends_with(".csv") {
-                let mut rdr = csv::Reader::from_path(&file)?;
-                for result in rdr.deserialize::<TradeData>() {
-                    let trade = result?;
-                    if let Err(e) = self.process_trade(trade).await {
-                        println!("Error processing CSV trade: {}", e);
-                    }
-                    continue;
-                    
-                }
-            } else if file.ends_with(".avro") {
-                let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
-                for result in rdr {
-                    let value = result?;
-                    let trade: TradeData = avro_rs::from_value(&value)?;
-                    if let Err(e) = self.process_trade(trade).await {
-                        println!("Error processing Avro trade: {}", e);
-                        continue;
-                    }
-                }
-            } else {
-                println!("Skipping file: {}", file);
-                continue;
-            }
-
+        let file = file_path.to_string();
+        if file.ends_with(".csv") {
+            let mut rdr = csv::Reader::from_path(&file)?;
+            trades = rdr.deserialize::<TradeData>().into_iter().map(|r| r.unwrap()).collect();
+            
+        } else if file.ends_with(".avro") {
+            let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
+            trades = rdr.map(|r| avro_rs::from_value(&r.unwrap()).unwrap()).collect();
         }
+        self.process_trades(output_avro_path.as_str(), &trades).await?;
 
         Ok(())
     }
 
-    async fn process_trade(&self, trade: TradeData) -> Result<()> {
-        let traded_token: String;
-        let token_sol_price: f64;
-        let sol_amount;
-        if trade.base_mint != "So11111111111111111111111111111111111111112" {
-            traded_token = trade.base_mint.clone();
-            token_sol_price = (trade.quote_amount / trade.base_amount).abs();
-            sol_amount = trade.quote_amount;
-        } else {
-            traded_token = trade.quote_mint.clone();
-            token_sol_price = (trade.base_amount / trade.quote_amount).abs();
-            sol_amount = trade.base_amount;
-        }
+    async fn process_trades(&self, output_file: &str, trades: &Vec<TradeData>) -> Result<()> {
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&output_file)?;
 
-        let sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await).expect("Failed to get SOL price");
-        let meta = self
-            .get_token_meta(&traded_token)
-            .await?;
+        let mut writer = Writer::new(&AVRO_SCHEMA, file);
+        for trade in trades {
+            let traded_token: String;
+            let token_sol_price: f64;
+            let sol_amount;
+            if trade.base_mint != "So11111111111111111111111111111111111111112" {
+                traded_token = trade.base_mint.clone();
+                token_sol_price = (trade.quote_amount / trade.base_amount).abs();
+                sol_amount = trade.quote_amount;
+            } else {
+                traded_token = trade.quote_mint.clone();
+                token_sol_price = (trade.base_amount / trade.quote_amount).abs();
+                sol_amount = trade.base_amount;
+            }
 
-
-        let supply = match meta.total_supply {
-            Some(supply) => {
-                supply / 10f64.powi(-meta.decimals) * token_sol_price * sol_price
-            },
-            None => 0.0,
-        };
-
-        let processed_trade = ProcessedTrade {
-            block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
-            block_time: trade.block_time,
-            block_slot: trade.block_slot,
-            token: traded_token,
-            price: token_sol_price,
-            usd_price: token_sol_price * sol_price,
-            volume: sol_amount * sol_price,
-            market_cap: supply,
-        };
+            let sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await).expect("Failed to get SOL price");
+            let meta = self
+                .get_token_meta(&traded_token)
+                .await?;
 
 
-        let dt = NaiveDateTime::from_timestamp_opt(trade.block_time, 0)
-            .expect("Invalid timestamp");
-        let hour_key = format!(
-            "{:04}-{:02}-{:02}-{:02}",
-            dt.year(),
-            dt.month(),
-            dt.day(),
-            dt.hour()
-        );
+            let supply = match meta.total_supply {
+                Some(supply) => {
+                    supply / 10f64.powi(-meta.decimals) * token_sol_price * sol_price
+                },
+                None => 0.0,
+            };
 
-        let mut record = Record::new(&AVRO_SCHEMA).expect("Failed to create Avro record");
-            record.put("block_date", processed_trade.block_date.clone());
-            record.put("block_time", processed_trade.block_time);
-            record.put("block_slot", processed_trade.block_slot as i64);
-            record.put("token", processed_trade.token.clone());
-            record.put("price", processed_trade.price);
-            record.put("usd_price", processed_trade.usd_price);
-            record.put("volume", processed_trade.volume);
-            record.put("market_cap", processed_trade.market_cap);
+            let processed_trade = ProcessedTrade {
+                block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
+                block_time: trade.block_time,
+                block_slot: trade.block_slot,
+                token: traded_token,
+                price: token_sol_price,
+                usd_price: token_sol_price * sol_price,
+                volume: sol_amount * sol_price,
+                market_cap: supply,
+            };
 
+            let mut record = Record::new(&AVRO_SCHEMA).expect("Failed to create Avro record");
+                record.put("block_date", processed_trade.block_date.clone());
+                record.put("block_time", processed_trade.block_time);
+                record.put("block_slot", processed_trade.block_slot as i64);
+                record.put("token", processed_trade.token.clone());
+                record.put("price", processed_trade.price);
+                record.put("usd_price", processed_trade.usd_price);
+                record.put("volume", processed_trade.volume);
+                record.put("market_cap", processed_trade.market_cap);
 
-        let output_avro_path = format!("{}{}_hourly/{}.avro", self.path.to_str().unwrap(), self.date, hour_key);
-
-        let mut writers = self.hourly_writers.lock().await;
-        let writer = writers.entry(hour_key.clone()).or_insert_with(|| {
-            let file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&output_avro_path)
-                .expect("Failed to open output file");
-            Writer::with_codec(&AVRO_SCHEMA, BufWriter::new(file), Codec::Deflate)
-        });
-
-        if let Err(e) = writer.append(record) {
-            println!("Error appending record: {}", e);
+            writer.append(record).expect("Failed to append record");
         }
 
         Ok(())
@@ -504,14 +464,10 @@ impl Preprocessor {
         price
     }
 
-    async fn process(&self) -> Result<()> {
+    async fn process(self: Arc<Self>) -> Result<()> {
         let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
-        // TODO: flip logic upside down
-        // start with range for this date (expected) using min and max from folder
-        // trigger number of threads to process blocks
-        // 1. check if block is valid
-        // 2. augment block with additional data
-        // 3. save it back to processed folder
+
+        // TODO: make functions out of preprocessor
         let raw_files = self.get_raw_files(folder.as_str()).await;
         let min = extract_slot_from_filename(raw_files.first().unwrap()).unwrap();
         let max = extract_slot_from_filename(raw_files.last().unwrap()).unwrap();
@@ -536,21 +492,28 @@ impl Preprocessor {
         let csv_file = format!("{}{}/{}.csv", self.path.to_str().unwrap(), self.date, slot_str);
         let avro_file = format!("{}{}/{}.avro", self.path.to_str().unwrap(), self.date, slot_str);
 
+        let mut file_path = "".to_string();
+
+        let mut is_verified = false;
+
         if Path::new(&csv_file).exists() && Path::new(&avro_file).exists() {
             // delete csv file, validate avro file
             fs::remove_file(&csv_file).expect("Failed to remove csv file");
             if self.verify_slot(&avro_file) {
-                return;
+                is_verified = true;
+                file_path = avro_file;
             }
         } else if Path::new(&csv_file).exists() {
             // validate csv file
             if self.verify_slot(&csv_file) {
-                return;
+                is_verified = true;
+                file_path = csv_file;
             }
         } else if Path::new(&avro_file).exists() {
             // validate avro file
             if self.verify_slot(&avro_file) {
-                return;
+                is_verified = true;
+                file_path = avro_file;
             }
         } else {
             // preprocess block
@@ -558,7 +521,19 @@ impl Preprocessor {
                 .await
                 .expect(format!("Failed to fetch block {}", slot).as_str());
             process_block(block, None).await;
+            if self.verify_slot(&avro_file) {
+                is_verified = true;
+                file_path = avro_file;
+            }
         }
+
+        if !is_verified {
+            println!("Slot {} is corrupted", slot);
+            return;
+        }
+
+        self.process_file(&file_path.as_str()).await.expect("Failed to process file");
+
     }
 
     async fn augment_slot(&self, path: &str) {
