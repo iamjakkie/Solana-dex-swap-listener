@@ -8,6 +8,7 @@ use common::{
 use lazy_static::lazy_static;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
+use reqwest::Client;
 use tokio_retry::{strategy::ExponentialBackoff, Retry};
 use zip::{write::FileOptions, CompressionMethod};
 use std::{
@@ -15,8 +16,9 @@ use std::{
 };
 use tokio::{
     sync::{Mutex, Semaphore},
-    time::{self, sleep},
+    time::{self, sleep, timeout},
 };
+use serde_json::Value as JsonValue;
 
 use crate::models::{TokenMeta, ProcessedTrade};
 
@@ -228,12 +230,13 @@ impl Preprocessor {
                 lines += 1;
             }
         } else if file.ends_with(".avro") {
-            let rdr = avro_rs::Reader::new(File::open(&file).expect("Failed to read avro file"))
-                .expect("Failed to read avro file");
+            let rdr = avro_rs::Reader::new(File::open(&file).expect(format!("Failed to read avro file: {}", file).as_str())).expect("Failed to read avro file");
             lines = rdr.count();
         }
 
-        if lines < 50 {
+
+
+        if lines == 0 {
             return false;
         } else {
             return true;
@@ -276,7 +279,7 @@ impl Preprocessor {
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
         for slot in missing_slots.clone() {
             let permit = semaphore.clone().acquire_owned().await?;
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 let block = fetch_block_with_version(slot)
                     .await
                     .expect(format!("Failed to fetch block {}", slot).as_str());
@@ -284,6 +287,7 @@ impl Preprocessor {
                 process_block(block, None).await;
                 drop(permit);
             });
+            handle.await.unwrap();
         }
         Ok(())
     }
@@ -306,25 +310,25 @@ impl Preprocessor {
 
         let res: serde_json::Value = Retry::spawn(retry_strategy, || async {
             let client = reqwest::Client::new();
-            let response = client.get(&url)
-                .header("token", &*SOLSCAN_API_KEY)
-                .send()
-                .await?;
-            response.json::<serde_json::Value>().await
+            // Wrap the request in a timeout.
+            let response = match timeout(
+                Duration::from_secs(10),
+                client.get(&url)
+                    .header("token", SOLSCAN_API_KEY.as_str())
+                    .send()
+            ).await {
+                Ok(inner) => inner.map_err(|e| anyhow!("Request error: {}", e))?,
+                Err(_) => return Err(anyhow!("Timeout reached")),
+            };
+
+            let response = response.error_for_status().map_err(|e| anyhow!("HTTP error: {}", e))?;
+            let json = response.json::<serde_json::Value>()
+                .await
+                .map_err(|e| anyhow!("JSON parse error: {}", e))?;
+            Ok(json)
         }).await?;
 
-        // let client = reqwest::Client::new();
-        // let res = client
-        //     .get(&url)
-        //     .header("token", &*SOLSCAN_API_KEY)
-        //     .send()
-        //     .await?
-        //     .json::<serde_json::Value>()
-        //     .await?;
-
         let data = res.get("data").ok_or_else(|| anyhow::anyhow!("Failed to get data"))?;
-
-        println!("Data: {:?}", data);
 
         let decimals = data.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
         let supply = data.get("supply").and_then(|v| v.as_str()).expect("Couldn't get supply").parse::<f64>().unwrap();
@@ -423,16 +427,12 @@ impl Preprocessor {
                 .get_token_meta(&traded_token)
                 .await?;
 
-
             let supply = match meta.total_supply {
                 Some(supply) => {
                     supply / 10f64.powi(-meta.decimals) * token_sol_price * sol_price
                 },
                 None => 0.0,
             };
-
-            println!("Supply for {}: {}", traded_token, supply);
-            println!("Meta: {:?}", meta);
 
             let processed_trade = ProcessedTrade {
                 block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
@@ -489,20 +489,17 @@ impl Preprocessor {
         let max = extract_slot_from_filename(raw_files.last().unwrap()).unwrap();
         println!("Max: {}", max);
 
-        let min = 317233807;
-        let max = 317233807;
-
-
         let slots = (min..=max).collect::<Vec<u64>>();
         let max_concurrent_tasks = 20;
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
         for slot in slots {
             let permit = semaphore.clone().acquire_owned().await?;
             let self_clone = Arc::clone(&self);
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 self_clone.process_slot(slot).await;
                 drop(permit);
             });
+            handle.await?;
         }
         Ok(())
     }
@@ -555,13 +552,12 @@ impl Preprocessor {
                 if self.verify_slot(&avro_file) {
                     is_verified = true;
                     file_path = avro_file.clone();
-                    println!("Slot {} verified on attempt {}", slot, attempt);
                     break;
                 } else {
                     println!("Verification failed for slot {} on attempt {}", slot, attempt);
                 }
+                sleep(Duration::from_secs(2)).await;
             }
-            sleep(Duration::from_millis(200)).await;
         }
         if !is_verified {
             return Err(anyhow!("Failed to verify slot {} after 3 attempts", slot));

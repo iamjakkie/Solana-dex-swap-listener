@@ -566,7 +566,6 @@ pub async fn save_trades_to_avro(trades: &Vec<TradeData>, file_path: &str) -> Re
         .write(true)
         .open(&file_path)?;
 
-    println!("Saving {} trades to {}", trades.len(), file_path);
     let mut writer = Writer::new(&AVRO_SCHEMA, file);
 
     for trade in trades.clone() {
