@@ -30,7 +30,7 @@ async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
                             println!("Processing block: {}", block_num);
                             // spawn a new thread to process_block
                             // tokio::spawn(async move {
-                            process_block(block, Some(publisher_clone)).await;
+                            process_block(block_num, block, Some(publisher_clone)).await;
                             // });
                             let elapsed = start_time.elapsed();
                             println!("Block {} processed in {:?}", block_num, elapsed);

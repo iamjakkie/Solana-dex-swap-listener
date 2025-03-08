@@ -284,7 +284,7 @@ impl Preprocessor {
                     .await
                     .expect(format!("Failed to fetch block {}", slot).as_str());
                 println!("Reprocessing slot: {}", slot);
-                process_block(block, None).await;
+                process_block(slot, block, None).await;
                 drop(permit);
             });
             handle.await.unwrap();
@@ -507,6 +507,8 @@ impl Preprocessor {
     async fn process_slot(&self, slot: u64) -> Result<()>{
         // 1. Check if slot.csv and slot.avro exist
 
+        println!("Processing slot: {}", slot);
+
         let slot_str = slot.to_string();
         let csv_file = format!("{}{}/{}.csv", self.path.to_str().unwrap(), self.date, slot_str);
         let avro_file = format!("{}{}/{}.avro", self.path.to_str().unwrap(), self.date, slot_str);
@@ -514,6 +516,7 @@ impl Preprocessor {
         let mut file_path = "".to_string();
 
         let mut is_verified = false;
+
 
         if Path::new(&csv_file).exists() && Path::new(&avro_file.clone()).exists() {
             // delete csv file, validate avro file
@@ -535,7 +538,7 @@ impl Preprocessor {
                 file_path = avro_file.clone();
             }
         } 
-
+        
         if !is_verified {
             for attempt in 1..=3 {
                 let block = match fetch_block_with_version(slot).await {
@@ -546,8 +549,10 @@ impl Preprocessor {
                         continue;
                     }
                 };
-                if let Err(e) = process_block(block, None).await {
-                    eprintln!("Failed to process block {} on attempt {}: {}", slot, attempt, e);
+                if let Err(e) = process_block(slot, block, None).await {
+                    println!("Failed to process block: {}", e);
+                    sleep(Duration::from_millis(500)).await;
+                    continue;
                 }
                 if self.verify_slot(&avro_file) {
                     is_verified = true;

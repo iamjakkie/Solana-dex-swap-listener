@@ -15,6 +15,7 @@ use solana_transaction_status::{
 };
 
 pub async fn fetch_block_with_version(block_slot: u64) -> Result<EncodedConfirmedBlock, Error> {
+    println!("Fetch block for slot: {}", block_slot);
     let rpc_client = RPC_CLIENT.clone();
     let params = json!([
         block_slot,
@@ -24,6 +25,7 @@ pub async fn fetch_block_with_version(block_slot: u64) -> Result<EncodedConfirme
 
     let response: serde_json::Value =
         rpc_client.send(solana_client::rpc_request::RpcRequest::GetBlock, params)?;
+
     let block: EncodedConfirmedBlock = serde_json::from_value(response)?;
 
     Ok(block)

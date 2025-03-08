@@ -19,11 +19,11 @@ use solana_transaction_status::{EncodedConfirmedBlock, UiInnerInstructions};
 use std::time::Duration;
 
 pub async fn process_block(
+    slot: u64, // node returns wrong slot
     block: EncodedConfirmedBlock,
     publisher_clone: Option<Arc<Mutex<zmq::Socket>>>,
 ) -> Result<()> {
     let timestamp = block.block_time.expect("Block time not found");
-    let slot = block.parent_slot;
     let mut data: Vec<TradeData> = vec![];
 
     // convert timestamp to human readable timestamp
@@ -58,8 +58,7 @@ pub async fn process_block(
 
     // save_trades_to_csv(&data, file_path.as_str()).await.expect("Failed to save trades to csv");
     save_trades_to_avro(&data, file_path.as_str())
-        .await
-        .expect("Failed to save trades to avro");
+        .await?;
 
     // TODO: ZMQ
     // let zmq_data: ZmqData = ZmqData {

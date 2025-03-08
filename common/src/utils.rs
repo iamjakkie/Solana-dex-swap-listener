@@ -549,7 +549,8 @@ fn get_system_program_transfer(
 
 pub async fn save_trades_to_avro(trades: &Vec<TradeData>, file_path: &str) -> Result<()> {
     if trades.is_empty() {
-        return Ok(()); // No trades to save
+        println!("No trades to save");
+        return Err(anyhow::anyhow!("No trades to save"));
     }
     // Ensure the directory exists.
     if let Some(parent) = Path::new(file_path).parent() {
