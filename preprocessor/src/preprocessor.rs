@@ -39,8 +39,7 @@ lazy_static::lazy_static! {
         { "name": "token", "type": "string" },
         { "name": "price", "type": "double" },
         { "name": "usd_price", "type": "double" },
-        { "name": "volume", "type": "double" },
-        { "name": "market_cap", "type": "double" }
+        { "name": "volume", "type": "double" }
       ]
     }
     "#).expect("Failed to parse Avro schema");
@@ -423,16 +422,16 @@ impl Preprocessor {
             }
 
             let sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await).expect("Failed to get SOL price");
-            let meta = self
-                .get_token_meta(&traded_token)
-                .await?;
+            // let meta = self
+            //     .get_token_meta(&traded_token)
+            //     .await?;
 
-            let supply = match meta.total_supply {
-                Some(supply) => {
-                    supply / 10f64.powi(-meta.decimals) * token_sol_price * sol_price
-                },
-                None => 0.0,
-            };
+            // let supply = match meta.total_supply {
+            //     Some(supply) => {
+            //         supply / 10f64.powi(-meta.decimals) * token_sol_price * sol_price
+            //     },
+            //     None => 0.0,
+            // };
 
             let processed_trade = ProcessedTrade {
                 block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
@@ -442,7 +441,7 @@ impl Preprocessor {
                 price: token_sol_price,
                 usd_price: token_sol_price * sol_price,
                 volume: sol_amount * sol_price,
-                market_cap: supply,
+                // market_cap: supply,
             };
 
             let mut record = Record::new(&AVRO_SCHEMA).expect("Failed to create Avro record");
@@ -453,7 +452,7 @@ impl Preprocessor {
                 record.put("price", processed_trade.price);
                 record.put("usd_price", processed_trade.usd_price);
                 record.put("volume", processed_trade.volume);
-                record.put("market_cap", processed_trade.market_cap);
+                // record.put("market_cap", processed_trade.market_cap);
 
             writer.append(record).expect("Failed to append record");
         }

@@ -29,6 +29,6 @@ pub struct ProcessedTrade {
     pub usd_price: f64,
     /// The traded volume in units of the traded token.
     pub volume: f64,
-    /// The token's market capitalization computed as token_price * total_supply (if available).
-    pub market_cap: f64,
+    // The token's market capitalization computed as token_price * total_supply (if available).
+    // pub market_cap: f64,
 }
