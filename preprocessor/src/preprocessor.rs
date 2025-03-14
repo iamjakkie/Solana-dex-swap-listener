@@ -1,16 +1,11 @@
 use anyhow::{Result, anyhow};
-use avro_rs::{types::{Record, Value}, Codec, Schema, Writer};
 use chrono::{NaiveDate, NaiveDateTime, Datelike, Timelike};
 use common::{
     block_processor::process_block, models::{KlineData, TradeData}, pricer::{fetch_klines_for_date, store_klines}, rpc_client::fetch_block_with_version
 };
 
-use lazy_static::lazy_static;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
-use reqwest::Client;
-use tokio_retry::{strategy::ExponentialBackoff, Retry};
-use zip::{write::FileOptions, CompressionMethod};
 use std::{
     collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File, OpenOptions}, io::{BufReader, BufWriter, Read, Write}, path::{Path, PathBuf}, sync::Arc, time::Duration
 };
@@ -18,40 +13,27 @@ use tokio::{
     sync::{Mutex, Semaphore},
     time::{self, sleep, timeout},
 };
-use serde_json::Value as JsonValue;
+use polars::prelude::*;
 
 use crate::models::{TokenMeta, ProcessedTrade};
+use crate::models::Side::{Buy, Sell};
 
-lazy_static!(
-    // SOLSCAN API KEY FROM ENV
-    pub static ref SOLSCAN_API_KEY: String = env::var("SOLSCAN_API_KEY").expect("SOLSCAN_API_KEY must be set");
-);
+const PUMP_FUN_SUPPLY: f64 = 1_000_000_000.0; // 1 billion
 
-lazy_static::lazy_static! {
-    pub static ref AVRO_SCHEMA: Schema = Schema::parse_str(r#"
-    {
-      "type": "record",
-      "name": "ProcessedTrade",
-      "fields": [
-        { "name": "block_date", "type": "string" },
-        { "name": "block_time", "type": "long" },
-        { "name": "block_slot", "type": "long" },
-        { "name": "token", "type": "string" },
-        { "name": "price", "type": "double" },
-        { "name": "usd_price", "type": "double" },
-        { "name": "volume", "type": "double" }
-      ]
-    }
-    "#).expect("Failed to parse Avro schema");
-}
+// lazy_static!(
+//     // SOLSCAN API KEY FROM ENV
+//     pub static ref SOLSCAN_API_KEY: String = env::var("SOLSCAN_API_KEY").expect("SOLSCAN_API_KEY must be set");
+// );
+
 
 pub struct Preprocessor {
     pub path: PathBuf,
     date: String,
-    pub db_client: tokio_postgres::Client,
-    token_meta_map: Arc<Mutex<HashMap<String, TokenMeta>>>,
+    swaps: Arc<Mutex<HashMap<String, Vec<ProcessedTrade>>>>,
+    // pub db_client: tokio_postgres::Client,
+    // token_meta_map: Arc<Mutex<HashMap<String, TokenMeta>>>,
     sol_prices: Vec<KlineData>,
-    hourly_writers: Mutex<HashMap<String, Writer<'static, BufWriter<File>>>>,
+    // hourly_writers: Mutex<HashMap<String, Writer<'static, BufWriter<File>>>>,
 }
 
 impl Preprocessor {
@@ -67,136 +49,137 @@ impl Preprocessor {
             .unwrap();
         let connector = MakeTlsConnector::new(connector);
 
-        let (client, connection) = tokio_postgres::connect(&get_database_url(), connector)
-            .await
-            .unwrap();
+        // let (client, connection) = tokio_postgres::connect(&get_database_url(), connector)
+        //     .await
+        //     .unwrap();
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
-            }
-        });
+        // tokio::spawn(async move {
+        //     if let Err(e) = connection.await {
+        //         eprintln!("connection error: {}", e);
+        //     }
+        // });
 
         let prices = load_prices(base_path, date).await.expect("Failed to load prices");
 
         let preprocessor = Preprocessor {
             path: base_path.to_path_buf(),
             date: date.to_string(),
-            db_client: client,
-            token_meta_map: Arc::new(Mutex::new(HashMap::new())),
+            swaps: Arc::new(Mutex::new(HashMap::new())),
+            // db_client: client,
+            // token_meta_map: Arc::new(Mutex::new(HashMap::new())),
             sol_prices: prices,
-            hourly_writers: Mutex::new(HashMap::new()),
+            // hourly_writers: Mutex::new(HashMap::new()),
         };
 
-        preprocessor
-            .load_token_meta()
-            .await
-            .expect("Failed to load token meta");
+        // preprocessor
+        //     .load_token_meta()
+        //     .await
+        //     .expect("Failed to load token meta");
 
         preprocessor
     }
 
-    pub async fn start_token_meta_dump(&self) {
-        // Choose an interval (e.g., every 10 minutes)
-        let mut interval = time::interval(Duration::from_secs(60));
-        loop {
-            interval.tick().await;
-            if let Err(e) = self.dump_token_meta_to_db().await {
-                println!("Error dumping token meta to DB: {}", e);
-            }
-        }
-    }
+    // pub async fn start_token_meta_dump(&self) {
+    //     // Choose an interval (e.g., every 10 minutes)
+    //     let mut interval = time::interval(Duration::from_secs(60));
+    //     loop {
+    //         interval.tick().await;
+    //         if let Err(e) = self.dump_token_meta_to_db().await {
+    //             println!("Error dumping token meta to DB: {}", e);
+    //         }
+    //     }
+    // }
 
-    pub async fn dump_token_meta_to_db(&self) -> Result<()> {
-        let token_meta_map = self.token_meta_map.lock().await;
+    // pub async fn dump_token_meta_to_db(&self) -> Result<()> {
+    //     let token_meta_map = self.token_meta_map.lock().await;
 
-        if token_meta_map.is_empty() {
-            return Ok(());
-        }
-        // Load current state from DB into a local HashMap keyed by contract_address.
-        let rows = self
-            .db_client
-            .query("SELECT contract_address FROM token_meta", &[])
-            .await?;
+    //     if token_meta_map.is_empty() {
+    //         return Ok(());
+    //     }
+    //     // Load current state from DB into a local HashMap keyed by contract_address.
+    //     let rows = self
+    //         .db_client
+    //         .query("SELECT contract_address FROM token_meta", &[])
+    //         .await?;
 
-        let mut db_state: HashSet<String> = HashSet::new();
-        rows.iter().for_each(|row| {
-            db_state.insert(row.get(0));
-        });
+    //     let mut db_state: HashSet<String> = HashSet::new();
+    //     rows.iter().for_each(|row| {
+    //         db_state.insert(row.get(0));
+    //     });
 
-        // calculate the difference
-        let token_meta_set: HashSet<String> = token_meta_map.keys().cloned().collect();
+    //     // calculate the difference
+    //     let token_meta_set: HashSet<String> = token_meta_map.keys().cloned().collect();
 
-        let new_tokens: HashSet<String> = token_meta_set.difference(&db_state).cloned().collect();
+    //     let new_tokens: HashSet<String> = token_meta_set.difference(&db_state).cloned().collect();
 
-        if new_tokens.is_empty() {
-            return Ok(());
-        }
+    //     if new_tokens.is_empty() {
+    //         return Ok(());
+    //     }
 
-        // construct query
+    //     // construct query
 
-        let mut query = "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ".to_string();
+    //     let mut query = "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ".to_string();
 
-        // if new_tokens index % 500 == 0 send query
+    //     // if new_tokens index % 500 == 0 send query
 
         
         
-        for (ind, contract) in new_tokens.iter().enumerate() {
-            let meta = token_meta_map.get(contract).unwrap();
-            query.push_str(&format!(
-                "('{}', '{}', '{}', {}, {}, '{}', {}, '{}', '{}'),",
-                meta.contract_address.replace("'", "''"),
-                meta.token_name.replace("'", "''"),
-                meta.token_symbol.replace("'", "''"),
-                meta.decimals,
-                meta.total_supply.unwrap_or(0.0),
-                meta.creator.replace("'", "''"),
-                meta.created_time,
-                meta.twitter.as_deref().unwrap_or("").replace("'", "''"),
-                meta.website.as_deref().unwrap_or("").replace("'", "''")
-            ));
+    //     for (ind, contract) in new_tokens.iter().enumerate() {
+    //         let meta = token_meta_map.get(contract).unwrap();
+    //         query.push_str(&format!(
+    //             "('{}', '{}', '{}', {}, {}, '{}', {}, '{}', '{}'),",
+    //             meta.contract_address.replace("'", "''"),
+    //             meta.token_name.replace("'", "''"),
+    //             meta.token_symbol.replace("'", "''"),
+    //             meta.decimals,
+    //             meta.total_supply.unwrap_or(0.0),
+    //             meta.creator.replace("'", "''"),
+    //             meta.created_time,
+    //             meta.twitter.as_deref().unwrap_or("").replace("'", "''"),
+    //             meta.website.as_deref().unwrap_or("").replace("'", "''")
+    //         ));
 
-            if ind % 500 == 0 {
-                query.pop(); // Remove trailing comma
-                self.db_client.execute(query.as_str(), &[]).await?;
-                query = "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ".to_string();
-            }
-        }
+    //         if ind % 500 == 0 {
+    //             query.pop(); // Remove trailing comma
+    //             self.db_client.execute(query.as_str(), &[]).await?;
+    //             query = "INSERT INTO token_meta (contract_address, token_name, token_symbol, decimals, total_supply, creator, created_time, twitter, website) VALUES ".to_string();
+    //         }
+    //     }
 
-        query.pop(); // Remove trailing comma
+    //     query.pop(); // Remove trailing comma
 
-        self.db_client.execute(query.as_str(), &[]).await?;
+    //     self.db_client.execute(query.as_str(), &[]).await?;
 
-        println!("Token meta successfully dumped to DB at");
-        Ok(())
-    }
+    //     println!("Token meta successfully dumped to DB at");
+    //     Ok(())
+    // }
 
-    async fn load_token_meta(&self) -> Result<()> {
-        let rows = self
-            .db_client
-            .query("SELECT * FROM token_meta", &[])
-            .await
-            .expect("Failed to fetch token meta");
+    // async fn load_token_meta(&self) -> Result<()> {
+    //     let rows = self
+    //         .db_client
+    //         .query("SELECT * FROM token_meta", &[])
+    //         .await
+    //         .expect("Failed to fetch token meta");
 
-        let mut token_meta_map = self.token_meta_map.lock().await;
-        for row in rows {
-            let token_meta = TokenMeta {
-                contract_address: row.get(0),
-                token_name: row.get(1),
-                token_symbol: row.get(2),
-                decimals: row.get(3),
-                total_supply: row.get(4),
-                creator: row.get(5),
-                created_time: row.get(6),
-                twitter: row.get(7),
-                website: row.get(8),
-            };
+    //     let mut token_meta_map = self.token_meta_map.lock().await;
+    //     for row in rows {
+    //         let token_meta = TokenMeta {
+    //             contract_address: row.get(0),
+    //             token_name: row.get(1),
+    //             token_symbol: row.get(2),
+    //             decimals: row.get(3),
+    //             total_supply: row.get(4),
+    //             creator: row.get(5),
+    //             created_time: row.get(6),
+    //             twitter: row.get(7),
+    //             website: row.get(8),
+    //         };
 
-            token_meta_map.insert(token_meta.contract_address.clone(), token_meta);
-        }
+    //         token_meta_map.insert(token_meta.contract_address.clone(), token_meta);
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     async fn get_raw_files(&self, dir: &str) -> Vec<String> {
         println!("Getting raw files");
@@ -219,249 +202,94 @@ impl Preprocessor {
         files
     }
 
-    fn verify_slot(&self, file: &str) -> bool {
-        // check size of the file
-        // read raw file and count lines
-        let mut lines = 0;
-        if file.ends_with(".csv") {
-            let mut rdr = csv::Reader::from_path(&file).expect("Failed to read csv file");
-            for _ in rdr.records() {
-                lines += 1;
-            }
-        } else if file.ends_with(".avro") {
-            let rdr = avro_rs::Reader::new(File::open(&file).expect(format!("Failed to read avro file: {}", file).as_str())).expect("Failed to read avro file");
-            lines = rdr.count();
-        }
+    
 
+    // async fn get_token_meta(&self, token_address: &str) -> Result<TokenMeta> {
+    //     // try to find in self.token_meta_map first
+    //     {
+    //         let token_meta_map = self.token_meta_map.lock().await;
+    //         if let Some(token_meta) = token_meta_map.get(token_address) {
+    //             return Ok(token_meta.clone());
+    //         }
+    //     }
 
+    //     // else go to API
+    //     let url = format!(
+    //         "https://pro-api.solscan.io/v2.0/token/meta?address={}",
+    //         token_address
+    //     );
+    //     let retry_strategy = ExponentialBackoff::from_millis(100).take(5);
 
-        if lines == 0 {
-            return false;
-        } else {
-            return true;
-        }
-    }
+    //     let res: serde_json::Value = Retry::spawn(retry_strategy, || async {
+    //         let client = reqwest::Client::new();
+    //         // Wrap the request in a timeout.
+    //         let response = match timeout(
+    //             Duration::from_secs(10),
+    //             client.get(&url)
+    //                 .header("token", SOLSCAN_API_KEY.as_str())
+    //                 .send()
+    //         ).await {
+    //             Ok(inner) => inner.map_err(|e| anyhow!("Request error: {}", e))?,
+    //             Err(_) => return Err(anyhow!("Timeout reached")),
+    //         };
 
-    async fn check_missing_slots(&self, raw_files: &[String]) -> Result<Vec<u64>> {
-        println!("Checking for missing slots");
-        let mut slots: BTreeSet<u64> = BTreeSet::new();
+    //         let response = response.error_for_status().map_err(|e| anyhow!("HTTP error: {}", e))?;
+    //         let json = response.json::<serde_json::Value>()
+    //             .await
+    //             .map_err(|e| anyhow!("JSON parse error: {}", e))?;
+    //         Ok(json)
+    //     }).await?;
 
-        for file in raw_files {
-            if let Some(slot) = extract_slot_from_filename(file) {
-                // check if file is empty and/or corrupted
-                if self.verify_slot(file.as_str()) {
-                    continue;
-                } else {
-                    slots.insert(slot);
-                    // delete corrupted file
-                    fs::remove_file(file)?;
-                }
-            }
-        }
+    //     let data = res.get("data").ok_or_else(|| anyhow::anyhow!("Failed to get data"))?;
 
-        let min_slot = *slots.iter().next().unwrap_or(&0);
-        let max_slot = *slots.iter().last().unwrap_or(&0);
+    //     let decimals = data.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
+    //     let supply = data.get("supply").and_then(|v| v.as_str()).expect("Couldn't get supply").parse::<f64>().unwrap();
+    //     let total_supply = Some(supply / 10f64.powi(decimals));
 
-        let mut missing_slots = vec![];
-        for slot in min_slot..=max_slot {
-            if !slots.contains(&slot) {
-                missing_slots.push(slot);
-            }
-        }
+    //     let token_meta = TokenMeta {
+    //         contract_address: token_address.to_string(),
+    //         token_name: data
+    //             .get("name")
+    //             .and_then(|v| v.as_str())
+    //             .unwrap_or("")
+    //             .to_string(),
+    //         token_symbol: data
+    //             .get("symbol")
+    //             .and_then(|v| v.as_str())
+    //             .unwrap_or("")
+    //             .to_string(),
+    //         decimals: decimals,
+    //         total_supply: total_supply,
+    //         creator: data
+    //             .get("creator")
+    //             .and_then(|v| v.as_str())
+    //             .unwrap_or("")
+    //             .to_string(),
+    //         created_time: data
+    //             .get("created_time")
+    //             .and_then(|v| v.as_u64())
+    //             .map(|v| v as i64)
+    //             .unwrap_or(0),
+    //         twitter: data
+    //             .get("twitter")
+    //             .and_then(|v| v.as_str())
+    //             .map(|s| s.to_string()),
+    //         website: data
+    //             .get("website")
+    //             .and_then(|v| v.as_str())
+    //             .map(|s| s.to_string()),
+    //     };
 
-        Ok(missing_slots)
-    }
+    //     // add to self.token_meta_map
+    //     let mut token_meta_map = self.token_meta_map.lock().await;
+    //     token_meta_map.insert(token_meta.contract_address.clone(), token_meta.clone());
 
-    async fn reprocess_slots(&self, missing_slots: &Vec<u64>) -> Result<()> {
-        // 
-        let max_concurrent_tasks = 10;
-        let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        for slot in missing_slots.clone() {
-            let permit = semaphore.clone().acquire_owned().await?;
-            let handle = tokio::spawn(async move {
-                let block = fetch_block_with_version(slot)
-                    .await
-                    .expect(format!("Failed to fetch block {}", slot).as_str());
-                println!("Reprocessing slot: {}", slot);
-                process_block(slot, block, None).await;
-                drop(permit);
-            });
-            handle.await.unwrap();
-        }
-        Ok(())
-    }
+    //     Ok(token_meta)
+    // }
 
-    async fn get_token_meta(&self, token_address: &str) -> Result<TokenMeta> {
-        // try to find in self.token_meta_map first
-        {
-            let token_meta_map = self.token_meta_map.lock().await;
-            if let Some(token_meta) = token_meta_map.get(token_address) {
-                return Ok(token_meta.clone());
-            }
-        }
+    
 
-        // else go to API
-        let url = format!(
-            "https://pro-api.solscan.io/v2.0/token/meta?address={}",
-            token_address
-        );
-        let retry_strategy = ExponentialBackoff::from_millis(100).take(5);
-
-        let res: serde_json::Value = Retry::spawn(retry_strategy, || async {
-            let client = reqwest::Client::new();
-            // Wrap the request in a timeout.
-            let response = match timeout(
-                Duration::from_secs(10),
-                client.get(&url)
-                    .header("token", SOLSCAN_API_KEY.as_str())
-                    .send()
-            ).await {
-                Ok(inner) => inner.map_err(|e| anyhow!("Request error: {}", e))?,
-                Err(_) => return Err(anyhow!("Timeout reached")),
-            };
-
-            let response = response.error_for_status().map_err(|e| anyhow!("HTTP error: {}", e))?;
-            let json = response.json::<serde_json::Value>()
-                .await
-                .map_err(|e| anyhow!("JSON parse error: {}", e))?;
-            Ok(json)
-        }).await?;
-
-        let data = res.get("data").ok_or_else(|| anyhow::anyhow!("Failed to get data"))?;
-
-        let decimals = data.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
-        let supply = data.get("supply").and_then(|v| v.as_str()).expect("Couldn't get supply").parse::<f64>().unwrap();
-        let total_supply = Some(supply / 10f64.powi(decimals));
-
-        let token_meta = TokenMeta {
-            contract_address: token_address.to_string(),
-            token_name: data
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            token_symbol: data
-                .get("symbol")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            decimals: decimals,
-            total_supply: total_supply,
-            creator: data
-                .get("creator")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            created_time: data
-                .get("created_time")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as i64)
-                .unwrap_or(0),
-            twitter: data
-                .get("twitter")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            website: data
-                .get("website")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-        };
-
-        // add to self.token_meta_map
-        let mut token_meta_map = self.token_meta_map.lock().await;
-        token_meta_map.insert(token_meta.contract_address.clone(), token_meta.clone());
-
-        Ok(token_meta)
-    }
-
-    async fn process_file(&self, file_path: &str) -> Result<()> {
-        let slot = extract_slot_from_filename(file_path).unwrap();
-        let output_avro_path = format!("{}{}_processed/{}.avro", self.path.to_str().unwrap(), self.date, slot);
-        
-        let mut trades: Vec<TradeData> = vec![];
-
-        let file = file_path.to_string();
-        if file.ends_with(".csv") {
-            let mut rdr = csv::Reader::from_path(&file)?;
-            trades = rdr.deserialize::<TradeData>().into_iter().map(|r| r.unwrap()).collect();
-            
-        } else if file.ends_with(".avro") {
-            let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
-            trades = rdr.map(|r| avro_rs::from_value(&r.unwrap()).unwrap()).collect();
-        }
-
-        self.process_trades(output_avro_path.as_str(), &trades).await?;
-
-        Ok(())
-    }
-
-    async fn process_trades(&self, output_file: &str, trades: &Vec<TradeData>) -> Result<()> {
-        if trades.is_empty() {
-            return Ok(());
-        }
-
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&output_file)?;
-
-        let mut writer = Writer::new(&AVRO_SCHEMA, file);
-        for trade in trades {
-            let traded_token: String;
-            let token_sol_price: f64;
-            let sol_amount;
-            if trade.base_mint != "So11111111111111111111111111111111111111112" {
-                traded_token = trade.base_mint.clone();
-                token_sol_price = (trade.quote_amount / trade.base_amount).abs();
-                sol_amount = trade.quote_amount;
-            } else {
-                traded_token = trade.quote_mint.clone();
-                token_sol_price = (trade.base_amount / trade.quote_amount).abs();
-                sol_amount = trade.base_amount;
-            }
-
-            let sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await).expect("Failed to get SOL price");
-            // let meta = self
-            //     .get_token_meta(&traded_token)
-            //     .await?;
-
-            // let supply = match meta.total_supply {
-            //     Some(supply) => {
-            //         supply / 10f64.powi(-meta.decimals) * token_sol_price * sol_price
-            //     },
-            //     None => 0.0,
-            // };
-
-            let processed_trade = ProcessedTrade {
-                block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
-                block_time: trade.block_time,
-                block_slot: trade.block_slot,
-                token: traded_token,
-                price: token_sol_price,
-                usd_price: token_sol_price * sol_price,
-                volume: sol_amount * sol_price,
-                // market_cap: supply,
-            };
-
-            let mut record = Record::new(&AVRO_SCHEMA).expect("Failed to create Avro record");
-                record.put("block_date", processed_trade.block_date.clone());
-                record.put("block_time", processed_trade.block_time);
-                record.put("block_slot", processed_trade.block_slot as i64);
-                record.put("token", processed_trade.token.clone());
-                record.put("price", processed_trade.price);
-                record.put("usd_price", processed_trade.usd_price);
-                record.put("volume", processed_trade.volume);
-                // record.put("market_cap", processed_trade.market_cap);
-
-            writer.append(record).expect("Failed to append record");
-        }
-
-        writer.flush().expect("Failed to flush writer");
-
-        Ok(())
-
-    }
+    
 
     async fn get_sol_price(&self, timestamp: u64) -> f64 {
         let mut price = 0.0;
@@ -489,7 +317,7 @@ impl Preprocessor {
         println!("Max: {}", max);
 
         let slots = (min..=max).collect::<Vec<u64>>();
-        let max_concurrent_tasks = 20;
+        let max_concurrent_tasks = 30;
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
         for slot in slots {
             let permit = semaphore.clone().acquire_owned().await?;
@@ -500,6 +328,8 @@ impl Preprocessor {
             });
             handle.await?;
         }
+
+        self.save(&processed_folder).await?;
         Ok(())
     }
 
@@ -572,56 +402,200 @@ impl Preprocessor {
         Ok(())
     }
 
-    async fn augment_slot(&self, path: &str) {
-        
-    }
-
-    async fn cleanup(&self, raw_files: &Vec<String>) -> Result<()> {
-        let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
-        let zip_file = format!("{}{}.zip", self.path.to_str().unwrap(), self.date);
-
-        // Create the zip file.
-        let file = File::create(&zip_file)?;
-        let buf_writer = BufWriter::new(file);
-        let mut zip = zip::ZipWriter::new(buf_writer);
-        let options: FileOptions<()> = FileOptions::default().compression_method(CompressionMethod::Deflated);
-        let mut buffer = Vec::new();
-
-        // Walk through the folder recursively.
-        for entry in raw_files {
-            let path = Path::new(&entry);
-            // Get the relative path within the folder.
-            let name = path.strip_prefix(&folder)?.to_str().unwrap();
-
-            if path.is_file() {
-                // Add file to the zip.
-                zip.start_file(name, options)?;
-                let mut f = File::open(path)?;
-                f.read_to_end(&mut buffer)?;
-                zip.write_all(&buffer)?;
-                buffer.clear();
-            } else if path.is_dir() && !name.is_empty() {
-                // Add directory entry.
-                zip.add_directory(name, options)?;
+    fn verify_slot(&self, file: &str) -> bool {
+        let mut lines = 0;
+        if file.ends_with(".csv") {
+            let mut rdr = csv::Reader::from_path(&file).expect("Failed to read csv file");
+            for _ in rdr.records() {
+                lines += 1;
             }
+        } else if file.ends_with(".avro") {
+            let rdr = avro_rs::Reader::new(File::open(&file).expect(format!("Failed to read avro file: {}", file).as_str())).expect("Failed to read avro file");
+            lines = rdr.count();
         }
 
-        zip.finish()?; // Finalize the zip archive.
-        println!("Successfully zipped {} to {}", folder, zip_file);
+        if lines == 0 {
+            return false;
+        } else {
+            return true;
+        }
+    }
 
-        // Remove the original folder.
-        fs::remove_dir_all(&folder)?;
-        println!("Deleted original folder {}", folder);
+    async fn process_file(&self, file_path: &str) -> Result<()> {
+        let slot = extract_slot_from_filename(file_path).unwrap();
+        let output_avro_path = format!("{}{}_processed/{}.avro", self.path.to_str().unwrap(), self.date, slot);
+        
+        let mut trades: Vec<TradeData> = vec![];
+
+        let file = file_path.to_string();
+        if file.ends_with(".csv") {
+            let mut rdr = csv::Reader::from_path(&file)?;
+            trades = rdr.deserialize::<TradeData>().into_iter().map(|r| r.unwrap()).collect();
+            
+        } else if file.ends_with(".avro") {
+            let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
+            trades = rdr.map(|r| avro_rs::from_value(&r.unwrap()).unwrap()).collect();
+        }
+
+        self.process_trades(output_avro_path.as_str(), &trades).await?;
+
+        Ok(())
+    }
+
+    async fn process_trades(&self, output_file: &str, trades: &Vec<TradeData>) -> Result<()> {
+        if trades.is_empty() {
+            return Ok(());
+        }
+
+        for trade in trades {
+            let traded_token: String;
+            let token_sol_price: f64;
+            let sol_amount;
+            let token_amount;
+            if trade.base_mint != "So11111111111111111111111111111111111111112" {
+                traded_token = trade.base_mint.clone();
+                token_sol_price = (trade.quote_amount / trade.base_amount).abs();
+                sol_amount = trade.quote_amount;
+                token_amount = trade.base_amount;
+            } else {
+                traded_token = trade.quote_mint.clone();
+                token_sol_price = (trade.base_amount / trade.quote_amount).abs();
+                sol_amount = trade.base_amount;
+                token_amount = trade.quote_amount;
+            }
+
+            if !traded_token.ends_with("pump") {
+                continue;
+            }
+
+            let sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await).expect("Failed to get SOL price");
+            // let meta = self
+            //     .get_token_meta(&traded_token)
+            //     .await?;
+
+            // let supply = match meta.total_supply {
+            //     Some(supply) => {
+            //         supply / 10f64.powi(-meta.decimals) * token_sol_price * sol_price
+            //     },
+            //     None => 0.0,
+            // };
+
+            let processed_trade = ProcessedTrade {
+                block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
+                block_time: trade.block_time,
+                block_slot: trade.block_slot,
+                signature: trade.signature.clone(),
+                token: traded_token.clone(),
+                side: if sol_amount > 0.0 { Buy } else { Sell },
+                token_amount: token_amount.abs(),
+                sol_amount: sol_amount.abs(),
+                sol_usd_price: sol_price,
+                sol_price: token_sol_price,
+                usd_price: token_sol_price * sol_price,
+                volume: sol_amount.abs() * sol_price,
+                market_cap: (PUMP_FUN_SUPPLY * token_sol_price * sol_price),
+            };
+
+            self.swaps.lock().await.entry(traded_token.clone()).or_insert(vec![]).push(processed_trade);
+        }
 
         Ok(())
 
     }
 
+    async fn save(&self, output_path: &str) -> Result<()> {
+        // save processed trades to parquet files, one per token
+        for (token, trades) in self.swaps.lock().await.iter() {
+            // Create a DataFrame from trades.
+            // Build columns (Series) for each field.
+            let block_date: Vec<String> = trades.iter().map(|t| t.block_date.clone()).collect();
+            let block_time: Vec<i64> = trades.iter().map(|t| t.block_time).collect();
+            let block_slot: Vec<i64> = trades.iter().map(|t| t.block_slot as i64).collect();
+            let signature_col: Vec<String> = trades.iter().map(|t| t.signature.clone()).collect();
+            let token_col: Vec<String> = trades.iter().map(|t| t.token.clone()).collect();
+            let side_col: Vec<String> = trades.iter().map(|t| t.side.to_string()).collect();
+            let token_amount: Vec<f64> = trades.iter().map(|t| t.token_amount).collect();
+            let sol_amount: Vec<f64> = trades.iter().map(|t| t.sol_amount).collect();
+            let sol_usd_price: Vec<f64> = trades.iter().map(|t| t.sol_usd_price).collect();
+            let sol_price: Vec<f64> = trades.iter().map(|t| t.sol_price).collect();
+            let usd_price: Vec<f64> = trades.iter().map(|t| t.usd_price).collect();
+            let volume: Vec<f64> = trades.iter().map(|t| t.volume).collect();
+            let market_cap: Vec<f64> = trades.iter().map(|t| t.market_cap).collect();
+
+            // Construct the DataFrame.
+            // add bought token, sold token, bought amt, sold amt, signature, tx id
+            let mut df = df![
+                "block_date" => block_date,
+                "block_time" => block_time,
+                "block_slot" => block_slot,
+                "signature" => signature_col,
+                "token" => token_col,
+                "side" => side_col,
+                "token_amount" => token_amount,
+                "sol_amount" => sol_amount,
+                "sol_usd_price" => sol_usd_price,
+                "sol_price" => sol_price,
+                "usd_price" => usd_price,
+                "volume" => volume,
+                "market_cap" => market_cap
+            ]?;
+
+            let file_path = (format!("{}/{}.parquet", output_path, token));
+            let file = File::create(file_path)?;
+            let mut writer = ParquetWriter::new(file);
+            writer.finish(&mut df)?;
+            
+        }
+
+        Ok(())
+    }
+
+    // async fn cleanup(&self, raw_files: &Vec<String>) -> Result<()> {
+    //     let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
+    //     let zip_file = format!("{}{}.zip", self.path.to_str().unwrap(), self.date);
+
+    //     // Create the zip file.
+    //     let file = File::create(&zip_file)?;
+    //     let buf_writer = BufWriter::new(file);
+    //     let mut zip = zip::ZipWriter::new(buf_writer);
+    //     let options: FileOptions<()> = FileOptions::default().compression_method(CompressionMethod::Deflated);
+    //     let mut buffer = Vec::new();
+
+    //     // Walk through the folder recursively.
+    //     for entry in raw_files {
+    //         let path = Path::new(&entry);
+    //         // Get the relative path within the folder.
+    //         let name = path.strip_prefix(&folder)?.to_str().unwrap();
+
+    //         if path.is_file() {
+    //             // Add file to the zip.
+    //             zip.start_file(name, options)?;
+    //             let mut f = File::open(path)?;
+    //             f.read_to_end(&mut buffer)?;
+    //             zip.write_all(&buffer)?;
+    //             buffer.clear();
+    //         } else if path.is_dir() && !name.is_empty() {
+    //             // Add directory entry.
+    //             zip.add_directory(name, options)?;
+    //         }
+    //     }
+
+    //     zip.finish()?; // Finalize the zip archive.
+    //     println!("Successfully zipped {} to {}", folder, zip_file);
+
+    //     // Remove the original folder.
+    //     fs::remove_dir_all(&folder)?;
+    //     println!("Deleted original folder {}", folder);
+
+    //     Ok(())
+
+    // }
+
     pub async fn run(self: Arc<Self>) {
         let preprocessor_clone = Arc::clone(&self);
-        tokio::spawn(async move {
-            preprocessor_clone.start_token_meta_dump().await;
-        });
+        // tokio::spawn(async move {
+        //     preprocessor_clone.start_token_meta_dump().await;
+        // });
 
         let _ = self.process().await;
 
@@ -651,14 +625,14 @@ fn list_directories(path: &str) -> Vec<String> {
     folders
 }
 
-pub fn get_database_url() -> String {
-    let host = env::var("DB_HOST").expect("DB_HOST must be set");
-    let user = env::var("DB_USER").expect("DB_USER must be set");
-    let password = env::var("DB_PASSWORD").expect("DB_PASSWORD must be set");
-    let db_name = env::var("DB_NAME").expect("DB_NAME must be set");
+// pub fn get_database_url() -> String {
+//     let host = env::var("DB_HOST").expect("DB_HOST must be set");
+//     let user = env::var("DB_USER").expect("DB_USER must be set");
+//     let password = env::var("DB_PASSWORD").expect("DB_PASSWORD must be set");
+//     let db_name = env::var("DB_NAME").expect("DB_NAME must be set");
 
-    format!("postgres://{}:{}@{}/{}", user, password, host, db_name)
-}
+//     format!("postgres://{}:{}@{}/{}", user, password, host, db_name)
+// }
 
 async fn load_prices(path: &Path, date: &str) -> Result<Vec<KlineData>> {
     // check if SOL_PRICE file for given date exists in folder
