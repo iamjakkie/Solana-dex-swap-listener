@@ -82,7 +82,7 @@ lazy_static::lazy_static! {
 //     }
 // }
 
-pub fn get_mint(address: &String, token_balances: &Vec<TokenBalance>) -> Option<String> {
+pub async fn get_mint(address: &String, token_balances: &Vec<TokenBalance>) -> Option<String> {
     let index = token_balances.iter().position(|r| r.address == *address);
     match index {
         None => None,
@@ -144,18 +144,30 @@ pub fn get_amm_data(amm_address: &String) {
 //     return vault_b;
 // }
 
-pub fn get_signer_balance_change(pre_balances: &Vec<u64>, post_balances: &Vec<u64>) -> i64 {
+pub async fn get_signer_balance_change(pre_balances: &Vec<u64>, post_balances: &Vec<u64>) -> i64 {
     return post_balances[0] as i64 - pre_balances[0] as i64;
 }
 
-pub fn convert_to_date(ts: i64) -> String {
+pub async fn convert_to_date(ts: i64) -> String {
     let nt = NaiveDateTime::from_timestamp_opt(ts, 0);
     let dt: DateTime<Utc> = DateTime::from_naive_utc_and_offset(nt.unwrap(), Utc);
     let res = dt.format("%Y-%m-%d");
     return res.to_string();
 }
 
-pub fn get_amt(
+pub async fn get_amount(
+    address: &String,
+    pre_token_balances: &Vec<TokenBalance>,
+    post_token_balances: &Vec<TokenBalance>,
+) -> f64{
+    // calculate diff between post_token_balances and pre_token_balances for address
+    let post_amount = post_token_balances.iter().find(|&x| x.address == *address).unwrap();
+    let pre_amount = pre_token_balances.iter().find(|&x| x.address == *address).unwrap();
+    let diff = post_amount.ui_token_amount.ui_amount - pre_amount.ui_token_amount.ui_amount;
+    diff
+}
+
+pub async fn get_amt(
     address: &String,
     input_inner_idx: u32,
     inner_instructions: &Vec<UiInnerInstructions>,
@@ -165,13 +177,16 @@ pub fn get_amt(
     pre_balances: Vec<u64>,
     post_balances: Vec<u64>,
 ) -> f64 {
+    // TODO: this entire function should just get base vault, quote vault, base mint, quote mint and amounts
+    // then just find the amt change for vaults and assign it accordingly to base and quote amounts
     let mut result: f64 = 0.0;
 
-    let mint = get_mint(address, post_token_balances).unwrap();
+    let mint = get_mint(address, post_token_balances).await.unwrap();
 
     if mint == "So11111111111111111111111111111111111111112" {
+        // TODO: REPLACE THIS SHIT
         // get solana balance change
-        return (get_signer_balance_change(&pre_balances, &post_balances) as f64)
+        return (get_signer_balance_change(&pre_balances, &post_balances).await as f64)
             / (u64::pow(10, 9)) as f64;
     }
 

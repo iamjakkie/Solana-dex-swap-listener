@@ -10,38 +10,49 @@ use common::{
 use tokio::sync::{RwLock, Semaphore};
 use zmq;
 
-async fn run_indexer(publisher_arc: Arc<Mutex<zmq::Socket>>) {
+async fn run_indexer(/*publisher_arc: Option<Arc<Mutex<zmq::Socket>>>*/) {
         println!("Starting indexer");
-        let start_slot = 317233846;
+        let start_slot = 317233807;
+        let end_slot = 317447178;
 
         let max_concurrent_tasks = 25; // Limit to 10 concurrent tasks
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-            for block_num in (start_slot..317233847).rev() {
-                let permit = semaphore.clone().acquire_owned().await.unwrap(); // Acquire a permit
-                let publisher_clone = Arc::clone(&publisher_arc.clone());
-                tokio::spawn(async move {
-                    let start_time = Instant::now();
-                    let block = fetch_block_with_version(block_num).await;
-                    match block {
-                        Ok(_) => {
-                            let block = block.unwrap();
-                            println!("Processing block: {}", block.transactions.len());
+        let mut handles = Vec::new();
+        for block_num in (start_slot..end_slot).rev() {
+            let permit = semaphore.clone().acquire_owned().await.unwrap(); // Acquire a permit
+            // if publisher_arc.is_some() {
+            //     publisher_clone = Arc::clone(&publisher_arc.unwrap().clone());
+            // }
+            
+            let handle = tokio::spawn(async move {
+                let start_time = Instant::now();
+                let block = fetch_block_with_version(block_num).await;
+                match block {
+                    Ok(_) => {
+                        let block = block.unwrap();
+                        println!("Processing block: {}", block.transactions.len());
 
-                            println!("Processing block: {}", block_num);
-                            // spawn a new thread to process_block
-                            // tokio::spawn(async move {
-                            process_block(block_num, block, Some(publisher_clone)).await;
-                            // });
-                            let elapsed = start_time.elapsed();
-                            println!("Block {} processed in {:?}", block_num, elapsed);
-                        }
-                        Err(e) => {
-                            println!("Error: {:?}", e);
-                        }
+                        println!("Processing block: {}", block_num);
+                        // spawn a new thread to process_block
+                        // tokio::spawn(async move {
+
+                        process_block(block_num, block, /*Some(publisher_clone)*/None).await;
+                        // });
+                        let elapsed = start_time.elapsed();
+                        println!("Block {} processed in {:?}", block_num, elapsed);
                     }
-                    drop(permit);
-                });
-            }
+                    Err(e) => {
+                        println!("Error: {:?}", e);
+                    }
+                }
+                drop(permit);
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
 }
 
 fn bind_zmq(port: &str) -> zmq::Socket {
@@ -68,10 +79,5 @@ async fn main() {
     // // 2. Wrap the publisher in an Arc<Mutex> so we can share it
     let publisher_arc = Arc::new(Mutex::new(publisher));
 
-    run_indexer(publisher_arc).await;
-    // TODO: options
-    // 1. block limits - min, max
-    // 2. order
-    // 3. include csv save
-    // 4. include zmq
+    run_indexer().await;
 }
