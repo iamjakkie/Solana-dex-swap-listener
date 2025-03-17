@@ -449,20 +449,19 @@ impl Preprocessor {
 
         for trade in trades {
             let traded_token: String;
-            let token_sol_price: f64;
             let sol_amount;
             let token_amount;
             if trade.base_mint != "So11111111111111111111111111111111111111112" {
                 traded_token = trade.base_mint.clone();
-                token_sol_price = (trade.quote_amount / trade.base_amount).abs();
                 sol_amount = trade.quote_amount;
                 token_amount = trade.base_amount;
             } else {
                 traded_token = trade.quote_mint.clone();
-                token_sol_price = (trade.base_amount / trade.quote_amount).abs();
                 sol_amount = trade.base_amount;
                 token_amount = trade.quote_amount;
             }
+
+            let token_sol_price = sol_amount/token_amount;
 
             if !traded_token.ends_with("pump") {
                 continue;
