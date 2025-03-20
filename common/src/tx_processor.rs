@@ -15,6 +15,9 @@ use crate::{
 
 const RAYDIUM_PROGRAM_ID: &str = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
 const JUPITER_PROGRAM_ID: &str = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
+const METEORA_PROGRAM_ID: &str = "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB";
+const METEORA_DLMM_PROGRAM_ID: &str = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo";
+const ORCA_PROGRAM_ID: &str = "";
 const SERUM_ADD: &str = "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX";
 
 pub async fn process_tx(
@@ -199,8 +202,40 @@ pub async fn process_tx(
                         }
                     }
                 }
-            }
+            },
+            ORCA_PROGRAM_ID => {
 
+            },
+            METEORA_PROGRAM_ID => {
+                println!("Meteora program");
+                let base_add = all_addresses.get(6)?.clone();
+                let quote_add = all_addresses.get(7)?.clone();
+                if let Some(trade) = build_trade_data(
+                    main_program,
+                    &decoded_data,
+                    &inst.accounts,
+                    &all_addresses,
+                    &pre_token_balances_vec,
+                    &post_token_balances_vec,
+                    &base_add,
+                    &quote_add,
+                    &trx_meta_inner
+                        .first()
+                        .expect("Inner instructions not found")
+                        .instructions,
+                    timestamp,
+                    slot,
+                    &signature,
+                    idx,
+                    &trx_meta_inner,
+                    &pre_balances,
+                    &post_balances,
+                    fee,
+                ).await {
+                    println!("Trade: {:?}", trade);
+                    trades.push(trade);
+                }
+            },
             _ => {}
         };
     }
@@ -241,7 +276,7 @@ async fn build_trade_data(
         base_add,
         quote_add,
     );
-
+    println!("Trade data: {:?}", trade_data);
     // 2. If there's a return, build the TradeData struct
     if let Some(td) = trade_data {
         let td_name = td.name;
