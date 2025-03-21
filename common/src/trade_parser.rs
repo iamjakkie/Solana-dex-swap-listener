@@ -4,7 +4,7 @@ use solana_transaction_status::UiInstruction;
 use crate::models::{TokenBalance, TradeInstruction};
 use crate::utils::prepare_input_accounts;
 
-pub fn parse_trade_instruction(
+fn parse_raydium_trade_instruction(
     bytes_stream: &Vec<u8>,
     input_accounts: Vec<String>,
     post_token_balances: &Vec<TokenBalance>,
@@ -44,6 +44,41 @@ pub fn parse_trade_instruction(
     return result;
 }
 
+fn parse_meteora_trade_instruction(
+    bytes_stream: &Vec<u8>,
+    accounts: &Vec<String>,
+) -> Option<TradeInstruction>{
+    let (disc_bytes, rest) = bytes_stream.split_at(8);
+    let disc_bytes_arr: [u8; 8] = disc_bytes.to_vec().try_into().unwrap();
+    let discriminator: u64 = u64::from_le_bytes(disc_bytes_arr);
+
+    let mut result: Option<TradeInstruction> = None;
+
+    let swap_with_partner_discriminator: u64 = u64::from_le_bytes([248, 198, 158, 145, 225, 117, 135, 200]);
+
+    match discriminator {
+        swap_with_partner_discriminator => {
+            result = Some(TradeInstruction {
+                dapp_address: String::from("Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB"),
+                name: String::from("Swap"),
+                amm: accounts.get(0).unwrap().to_string(),
+                vault_a: accounts.get(5).unwrap().to_string(),
+                vault_b: accounts.get(6).unwrap().to_string(),
+                ..Default::default()
+            });
+        },
+        _ => {}
+    }
+
+    return result;
+}
+
+fn parse_meteora_dlmm_trade_instruction(
+
+) -> Option<TradeInstruction> {
+    
+}
+
 pub fn get_trade_instruction(
     address: &String,
     instruction_data: &Vec<u8>,
@@ -62,7 +97,7 @@ pub fn get_trade_instruction(
     let mut result = None;
     match address.as_str() {
         "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" => {
-            result = parse_trade_instruction(
+            result = parse_raydium_trade_instruction(
                 &instruction_data,
                 input_accounts,
                 &post_token_balances,
@@ -70,7 +105,18 @@ pub fn get_trade_instruction(
                 base_address,
                 quote_address,
             );
-        }
+        },
+        "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB" => {
+            result = parse_meteora_trade_instruction(
+                &instruction_data,
+                accounts,
+            );
+        },
+        "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo" => {
+            result = parse_meteora_dlmm_trade_instruction(
+
+            )
+        },
         _ => {}
     }
 
