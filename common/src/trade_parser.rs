@@ -219,7 +219,7 @@ pub fn get_trade_instruction(
         "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB" => {
             result = parse_meteora_trade_instruction(
                 &instruction_data,
-                accounts,
+                &input_accounts,
             );
         },
         "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo" => {

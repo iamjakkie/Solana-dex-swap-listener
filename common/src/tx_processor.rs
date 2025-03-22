@@ -308,7 +308,6 @@ async fn build_trade_data(
     post_balances: &Vec<u64>,
     fee: u64,
 ) -> Option<TradeData> {
-    // println!()
     let trade_data = get_trade_instruction(
         program,
         decoded_data,
@@ -323,7 +322,6 @@ async fn build_trade_data(
         base_add,
         quote_add,
     );
-    println!("Trade data: {:?}", trade_data);
     // 2. If there's a return, build the TradeData struct
     if let Some(td) = trade_data {
         let td_name = td.name;
