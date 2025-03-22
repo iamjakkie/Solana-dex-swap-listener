@@ -204,10 +204,32 @@ pub async fn process_tx(
                 }
             },
             ORCA_PROGRAM_ID => {
-
+                if let Some(trade) = build_trade_data(
+                    main_program,
+                    &decoded_data,
+                    &inst.accounts,
+                    &all_addresses,
+                    &pre_token_balances_vec,
+                    &post_token_balances_vec,
+                    &"".to_string(),
+                    &"".to_string(),
+                    &trx_meta_inner
+                        .first()
+                        .expect("Inner instructions not found")
+                        .instructions,
+                    timestamp,
+                    slot,
+                    &signature,
+                    idx,
+                    &trx_meta_inner,
+                    &pre_balances,
+                    &post_balances,
+                    fee,
+                ).await {
+                    trades.push(trade);
+                }
             },
             METEORA_PROGRAM_ID => {
-                println!("Meteora program");
                 let base_add = all_addresses.get(6)?.clone();
                 let quote_add = all_addresses.get(7)?.clone();
                 if let Some(trade) = build_trade_data(
@@ -232,10 +254,35 @@ pub async fn process_tx(
                     &post_balances,
                     fee,
                 ).await {
-                    println!("Trade: {:?}", trade);
                     trades.push(trade);
                 }
             },
+            METEORA_DLMM_PROGRAM_ID => {
+                if let Some(trade) = build_trade_data(
+                    main_program,
+                    &decoded_data,
+                    &inst.accounts,
+                    &all_addresses,
+                    &pre_token_balances_vec,
+                    &post_token_balances_vec,
+                    &"".to_string(),
+                    &"".to_string(),
+                    &trx_meta_inner
+                        .first()
+                        .expect("Inner instructions not found")
+                        .instructions,
+                    timestamp,
+                    slot,
+                    &signature,
+                    idx,
+                    &trx_meta_inner,
+                    &pre_balances,
+                    &post_balances,
+                    fee,
+                ).await {
+                    trades.push(trade);
+                }
+            }
             _ => {}
         };
     }
