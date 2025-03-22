@@ -126,8 +126,8 @@ fn parse_meteora_dlmm_trade_instruction(
 }
 
 fn parse_orca_trade_instruction(
-    bytes_stream: Vec<u8>,
-    accounts: Vec<String>,
+    bytes_stream: &Vec<u8>,
+    accounts: &Vec<String>,
 ) -> Option<TradeInstruction> {
     let (disc_bytes, rest) = bytes_stream.split_at(8);
     let disc_bytes_arr: [u8; 8] = disc_bytes.to_vec().try_into().unwrap();
@@ -163,14 +163,24 @@ fn parse_orca_trade_instruction(
                 amm: accounts.get(2).unwrap().to_string(),
                 vault_a: accounts.get(5).unwrap().to_string(),
                 vault_b: accounts.get(7).unwrap().to_string(),
-                second_swap_amm: Some(accounts.get(3).unwrap().to_string()),
-                second_swap_vault_a: Some(accounts.get(9).unwrap().to_string()),
-                second_swap_vault_b: Some(accounts.get(11).unwrap().to_string()),
+                // second_swap_amm: Some(accounts.get(3).unwrap().to_string()),
+                // second_swap_vault_a: Some(accounts.get(9).unwrap().to_string()),
+                // second_swap_vault_b: Some(accounts.get(11).unwrap().to_string()),
                 ..Default::default()
             });
         },
         8485347938364657594 => {
-
+            result = Some(TradeInstruction {
+                dapp_address: String::from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"),
+                name: String::from("TwoHopSwapV2"),
+                amm: accounts.get(0).unwrap().to_string(),
+                vault_a: accounts.get(9).unwrap().to_string(),
+                vault_b: accounts.get(10).unwrap().to_string(),
+                // second_swap_amm: Some(accounts.get(1).unwrap().to_string()),
+                // second_swap_vault_a: Some(accounts.get(11).unwrap().to_string()),
+                // second_swap_vault_b: Some(accounts.get(12).unwrap().to_string()),
+                ..Default::default()
+            });
         },
         _ => {}
     }
@@ -220,7 +230,8 @@ pub fn get_trade_instruction(
         },
         "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc" => {
             result = parse_orca_trade_instruction(
-                
+                &instruction_data,
+                accounts,
             )
         }
         _ => {}
