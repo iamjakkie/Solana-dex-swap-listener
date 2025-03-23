@@ -1,8 +1,6 @@
 use anyhow::Result;
 use std::{
-    sync::{Arc, Mutex},
-    thread::current,
-    time::{SystemTime, UNIX_EPOCH},
+    collections::HashMap, sync::{Arc, Mutex}, thread::current, time::{SystemTime, UNIX_EPOCH}
 };
 
 use crate::{
@@ -24,7 +22,7 @@ pub async fn process_block(
     publisher_clone: Option<Arc<Mutex<zmq::Socket>>>,
 ) -> Result<()> {
     let timestamp = block.block_time.expect("Block time not found");
-    let mut data: Vec<TradeData> = vec![];
+    let mut data: HashMap<String, Vec<TradeData>> = HashMap::new();
 
     // convert timestamp to human readable timestamp
     let d = UNIX_EPOCH + Duration::from_secs(timestamp.try_into().unwrap());
@@ -38,7 +36,9 @@ pub async fn process_block(
     for trx in block.transactions {
         match process_tx(trx, slot, timestamp).await {
             Some(trades) => {
-                data.extend(trades);
+                for (exchange, ex_trades) in trades.iter() {
+                    data.entry(exchange.to_string()).or_insert(vec![]).extend(ex_trades.iter().cloned());
+                }
             }
             None => {}
         }
@@ -53,11 +53,20 @@ pub async fn process_block(
         timestamp_str, current_timestamp_str
     );
 
-    let file_path = format!("{}{}/{}.avro", OUTPUT_PATH.as_str(), date_str, slot);
+    // print entries with len of trades
+    for (key, value) in data.iter() {
+        println!("Exchange: {}", key);
+        for trade in value.iter() {
+            println!("Signature: {}", trade.signature);
+        }
+    }
+
+
+    // let file_path = format!("{}{}/{}.avro", OUTPUT_PATH.as_str(), date_str, slot);
     // TODO: fix paths, incosistent across modules
 
     // save_trades_to_csv(&data, file_path.as_str()).await.expect("Failed to save trades to csv");
-    save_trades_to_avro(&data, file_path.as_str())
+    save_trades_to_avro(&data, &date_str, slot)
         .await?;
 
     // TODO: ZMQ

@@ -1,4 +1,4 @@
-use crate::global::RPC_CLIENT;
+use crate::global::{OUTPUT_PATH, RPC_CLIENT};
 use crate::models::{MarketDataStruct, TokenBalance, TradeData, Transfer};
 use anyhow::Result;
 use avro_rs::types::Record;
@@ -10,6 +10,7 @@ use solana_sdk::program_pack::Pack;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::{bs58, inner_instruction};
 use solana_transaction_status::{UiInnerInstructions, UiInstruction};
+use std::collections::HashMap;
 use std::fs::{create_dir_all, OpenOptions};
 use std::path::Path;
 use std::str::FromStr;
@@ -562,62 +563,72 @@ fn get_system_program_transfer(
     result
 }
 
-pub async fn save_trades_to_avro(trades: &Vec<TradeData>, file_path: &str) -> Result<()> {
+pub async fn save_trades_to_avro(trades: &HashMap<String,Vec<TradeData>>, date_str: &str, slot: u64) -> Result<()> {
     if trades.is_empty() {
         println!("No trades to save");
         return Err(anyhow::anyhow!("No trades to save"));
     }
-    // Ensure the directory exists.
-    if let Some(parent) = Path::new(file_path).parent() {
-        create_dir_all(parent)?;
+    let folder = format!("{}{}", OUTPUT_PATH.as_str(), date_str);
+    if !Path::new(&folder).exists() {
+        create_dir_all(&folder)?;
     }
 
     // Clone trades and file_path for the blocking task.
-    let trades = trades.clone();
-    let file_path = file_path.to_string();
+    let exchange_trades = trades.clone();
 
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&file_path)?;
+    for (exchange, trades) in exchange_trades {
+        let subfolder = format!("{}/{}", folder, exchange);
+        if !Path::new(&subfolder).exists() {
+            create_dir_all(&subfolder)?;
+        }
+        println!("Saving {} trades to Avro for {}", trades.len(), exchange);
+        let file_path = format!("{}/{}/{}.avro", folder, exchange, slot);
+        println!("File path: {}", file_path);
 
-    let mut writer = Writer::new(&AVRO_SCHEMA, file);
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&file_path)?;
 
-    for trade in trades.clone() {
-        let mut record = Record::new(&AVRO_SCHEMA).expect("Failed to create Avro record");
-        record.put("block_date", trade.block_date.clone());
-        record.put("block_time", trade.block_time);
-        // Convert u64 to i64
-        record.put("block_slot", trade.block_slot as i64);
-        record.put("signature", trade.signature.clone());
-        record.put("tx_id", trade.tx_id.clone());
-        record.put("signer", trade.signer.clone());
-        record.put("pool_address", trade.pool_address.clone());
-        record.put("base_mint", trade.base_mint.clone());
-        record.put("quote_mint", trade.quote_mint.clone());
-        record.put("base_vault", trade.base_vault.clone());
-        record.put("quote_vault", trade.quote_vault.clone());
-        record.put("base_amount", trade.base_amount);
-        record.put("quote_amount", trade.quote_amount);
-        record.put("is_inner_instruction", trade.is_inner_instruction);
-        record.put("instruction_index", trade.instruction_index as i32);
-        record.put("instruction_type", trade.instruction_type.clone());
-        record.put(
-            "inner_instruction_index",
-            trade.inner_instruction_index as i32,
-        );
-        record.put("outer_program", trade.outer_program.clone());
-        record.put("inner_program", trade.inner_program.clone());
-        record.put("txn_fee_lamports", trade.txn_fee_lamports as i64);
-        record.put(
-            "signer_lamports_change",
-            trade.signer_lamports_change as i64,
-        );
+        let mut writer = Writer::new(&AVRO_SCHEMA, file);
 
-        writer.append(record)?;
+        for trade in trades.clone() {
+            let mut record = Record::new(&AVRO_SCHEMA).expect("Failed to create Avro record");
+            record.put("block_date", trade.block_date.clone());
+            record.put("block_time", trade.block_time);
+            // Convert u64 to i64
+            record.put("block_slot", trade.block_slot as i64);
+            record.put("signature", trade.signature.clone());
+            record.put("tx_id", trade.tx_id.clone());
+            record.put("signer", trade.signer.clone());
+            record.put("pool_address", trade.pool_address.clone());
+            record.put("base_mint", trade.base_mint.clone());
+            record.put("quote_mint", trade.quote_mint.clone());
+            record.put("base_vault", trade.base_vault.clone());
+            record.put("quote_vault", trade.quote_vault.clone());
+            record.put("base_amount", trade.base_amount);
+            record.put("quote_amount", trade.quote_amount);
+            record.put("is_inner_instruction", trade.is_inner_instruction);
+            record.put("instruction_index", trade.instruction_index as i32);
+            record.put("instruction_type", trade.instruction_type.clone());
+            record.put(
+                "inner_instruction_index",
+                trade.inner_instruction_index as i32,
+            );
+            record.put("outer_program", trade.outer_program.clone());
+            record.put("inner_program", trade.inner_program.clone());
+            record.put("txn_fee_lamports", trade.txn_fee_lamports as i64);
+            record.put(
+                "signer_lamports_change",
+                trade.signer_lamports_change as i64,
+            );
+
+            writer.append(record)?;
+        }
+        writer.flush()?;
     }
-    writer.flush()?;
+    
     Ok(())
 }
 

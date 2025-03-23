@@ -226,12 +226,12 @@ pub fn get_trade_instruction(
             result = parse_meteora_dlmm_trade_instruction(
                 &instruction_data,
                 input_accounts,
-            )
+            );
         },
         "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc" => {
             result = parse_orca_trade_instruction(
                 &instruction_data,
-                accounts,
+                &input_accounts,
             )
         }
         _ => {}
