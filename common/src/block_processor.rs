@@ -53,14 +53,6 @@ pub async fn process_block(
         timestamp_str, current_timestamp_str
     );
 
-    // print entries with len of trades
-    for (key, value) in data.iter() {
-        println!("Exchange: {}", key);
-        for trade in value.iter() {
-            println!("Signature: {}", trade.signature);
-        }
-    }
-
 
     // let file_path = format!("{}{}/{}.avro", OUTPUT_PATH.as_str(), date_str, slot);
     // TODO: fix paths, incosistent across modules

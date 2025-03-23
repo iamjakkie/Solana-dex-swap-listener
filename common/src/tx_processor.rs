@@ -168,7 +168,6 @@ pub async fn process_tx(
                             &post_balances,
                             fee,
                         ).await {
-                            println!("trade: {:?}", trade);
                             trades.entry("RAYDIUM".to_string()).or_insert(vec![]).push(trade);
                         }
                     },
@@ -227,7 +226,6 @@ pub async fn process_tx(
                         }
                     },
                     METEORA_DLMM_PROGRAM_ID => {
-                        println!("DLMM, signature: {}", signature);
                         if let Some(trade) = build_trade_data(
                             program_add,
                             &program_data,
@@ -431,7 +429,6 @@ pub async fn process_tx(
                 }
             },
             METEORA_DLMM_PROGRAM_ID => {
-                println!("DLMM, signature: {}", signature);
                 if let Some(trade) = build_trade_data(
                     main_program,
                     &decoded_data,
