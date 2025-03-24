@@ -1,5 +1,6 @@
 use lazy_static::lazy_static;
-use solana_client::rpc_client::RpcClient;
+// use solana_client::rpc_client::RpcClient;
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 use std::{env, sync::Arc};
 

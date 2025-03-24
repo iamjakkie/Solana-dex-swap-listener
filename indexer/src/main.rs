@@ -5,15 +5,17 @@ use std::{
 
 use common::{
     block_processor::process_block,
-    rpc_client::{fetch_block_with_version, get_latest_slot},
+    rpc_client::{fetch_block_with_version},
 };
 use tokio::sync::{RwLock, Semaphore};
 use zmq;
 
 async fn run_indexer(/*publisher_arc: Option<Arc<Mutex<zmq::Socket>>>*/) {
         println!("Starting indexer");
-        let start_slot = 317233807;
-        let end_slot = 317447178;
+        // let start_slot = 311081162;
+        // let end_slot = 311292618;
+        let start_slot = 311292619;
+        let end_slot = start_slot + 20;
 
         let max_concurrent_tasks = 25; // Limit to 10 concurrent tasks
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
@@ -27,15 +29,16 @@ async fn run_indexer(/*publisher_arc: Option<Arc<Mutex<zmq::Socket>>>*/) {
             let handle = tokio::spawn(async move {
                 let start_time = Instant::now();
                 let block = fetch_block_with_version(block_num).await;
+                let block_end_time = start_time.elapsed();
+                println!("Block {} fetched in {:?}", block_num, block_end_time);
                 match block {
                     Ok(_) => {
                         let block = block.unwrap();
-                        println!("Processing block: {}", block.transactions.len());
 
                         println!("Processing block: {}", block_num);
                         // spawn a new thread to process_block
                         // tokio::spawn(async move {
-
+                        let start_time = Instant::now();
                         process_block(block_num, block, /*Some(publisher_clone)*/None).await;
                         // });
                         let elapsed = start_time.elapsed();

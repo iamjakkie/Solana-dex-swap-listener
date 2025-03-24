@@ -24,34 +24,34 @@ pub async fn fetch_block_with_version(block_slot: u64) -> Result<EncodedConfirme
     ]);
 
     let response: serde_json::Value =
-        rpc_client.send(solana_client::rpc_request::RpcRequest::GetBlock, params)?;
+        rpc_client.send(solana_client::rpc_request::RpcRequest::GetBlock, params).await?;
 
     let block: EncodedConfirmedBlock = serde_json::from_value(response)?;
 
     Ok(block)
 }
 
-pub async fn get_latest_slot() -> Result<u64, ClientError> {
-    let rpc_client = RPC_CLIENT.clone();
-    let slot = rpc_client.get_slot_with_commitment(CommitmentConfig::confirmed());
-    // let response: serde_json::Value = rpc_client.send(solana_client::rpc_request::RpcRequest::GetSlot, json!([]))?;
-    slot
-}
+// pub async fn get_latest_slot() -> Result<u64, ClientError> {
+//     let rpc_client = RPC_CLIENT.clone();
+//     let slot = rpc_client.get_slot_with_commitment(CommitmentConfig::confirmed());
+//     // let response: serde_json::Value = rpc_client.send(solana_client::rpc_request::RpcRequest::GetSlot, json!([]))?;
+//     slot
+// }
 
-pub async fn get_signature(tx: &str) -> Result<EncodedConfirmedTransactionWithStatusMeta, Error> {
-    let rpc_client = RPC_CLIENT.clone();
-    let signature = Signature::from_str(tx).unwrap();
-    let params = json!([
-        tx,
-        { "maxSupportedTransactionVersion": 0 }
-    ]);
-    let res = rpc_client.send(
-        solana_client::rpc_request::RpcRequest::GetTransaction,
-        params,
-    )?;
-    // let res = rpc_client.get_transaction(&signature, solana_transaction_status::UiTransactionEncoding::Base58)?;
-    // let response: serde_json::Value = rpc_client.send(solana_client::rpc_request::RpcRequest::GetSignatureStatus, json!([tx]))?;
-    // let block: EncodedConfirmedBlock = serde_json::from_value(response)?;
+// pub async fn get_signature(tx: &str) -> Result<EncodedConfirmedTransactionWithStatusMeta, Error> {
+//     let rpc_client = RPC_CLIENT.clone();
+//     let signature = Signature::from_str(tx).unwrap();
+//     let params = json!([
+//         tx,
+//         { "maxSupportedTransactionVersion": 0 }
+//     ]);
+//     let res = rpc_client.send(
+//         solana_client::rpc_request::RpcRequest::GetTransaction,
+//         params,
+//     )?;
+//     // let res = rpc_client.get_transaction(&signature, solana_transaction_status::UiTransactionEncoding::Base58)?;
+//     // let response: serde_json::Value = rpc_client.send(solana_client::rpc_request::RpcRequest::GetSignatureStatus, json!([tx]))?;
+//     // let block: EncodedConfirmedBlock = serde_json::from_value(response)?;
 
-    Ok(res)
-}
+//     Ok(res)
+// }

@@ -94,13 +94,13 @@ pub async fn get_mint(address: &String, token_balances: &Vec<TokenBalance>) -> O
     }
 }
 
-pub fn get_amm_data(amm_address: &String) {
-    let add = Pubkey::from_str(amm_address).unwrap();
-    let rpc_client = RPC_CLIENT.clone();
-    let acc_data = rpc_client.get_account(&add).unwrap().data;
-    let decoded_data = MarketDataStruct::try_from_slice(&acc_data).unwrap();
-    // println!("Account Data: {:?}", decoded_data);
-}
+// pub fn get_amm_data(amm_address: &String) {
+//     let add = Pubkey::from_str(amm_address).unwrap();
+//     let rpc_client = RPC_CLIENT.clone();
+//     let acc_data = rpc_client.get_account(&add).unwrap().data;
+//     let decoded_data = MarketDataStruct::try_from_slice(&acc_data).unwrap();
+//     // println!("Account Data: {:?}", decoded_data);
+// }
 
 // pub fn get_vault_a(
 //     input_accounts: &Vec<String>,
@@ -581,9 +581,7 @@ pub async fn save_trades_to_avro(trades: &HashMap<String,Vec<TradeData>>, date_s
         if !Path::new(&subfolder).exists() {
             create_dir_all(&subfolder)?;
         }
-        println!("Saving {} trades to Avro for {}", trades.len(), exchange);
         let file_path = format!("{}/{}/{}.avro", folder, exchange, slot);
-        println!("File path: {}", file_path);
 
         let file = OpenOptions::new()
             .create(true)
