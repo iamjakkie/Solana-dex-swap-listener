@@ -1,114 +1,122 @@
-Solana Raydium Trade Listener
+# Solana DeFi Trade Indexer
 
-Solana Raydium Trade Listener is a real-time utility for monitoring and parsing Raydium swaps on the Solana blockchain. By subscribing to or polling new blocks, this tool identifies transactions involving Raydium’s PROGRAM_ID, decodes them into a user-friendly format, and exports the data for further analysis or integration into trading bots, dashboards, or ML pipelines.
+Solana DeFi Trade Indexer is a comprehensive, real-time and historical data indexing utility for multiple Solana DEXes including Raydium, Meteora, Orca. It decodes on-chain swap transactions, enriches trade data, and exports the results for use in backtesting, trading bots, dashboards, or machine learning pipelines.
 
---------------------------------------------------------------------------------
+## Overview
+This repository is organized as a Cargo workspace with several interrelated modules:
 
-Key Features
+  ### Indexer
+  The core real-time listener that connects to a Solana RPC endpoint, fetches new blocks, decodes swap instructions, and produces uniform trade data.
 
-- Block Monitoring
-  Continuously fetches new blocks from Solana mainnet to stay current with the latest trades.
+  ### Preprocessor
+  A supplementary service for historical data enrichment and gap-filling. It processes raw block data from disk (or other storage), augments it with additional on-chain or off-chain data, and prepares the data for backtesting.
 
-- Raydium Swap Decoding
-  Searches for Raydium swap instructions, extracting relevant info into a TradeData struct.
+  ### Common
+  Shared libraries, models, and utilities used by both the Indexer and Preprocessor.
 
-- Structured Trade Data
-  Outputs uniform fields:
-      Block Date, Block Time, Block Slot, Signature, Tx Id, Signer,
-      Pool Address, Base Mint, Quote Mint, Base Vault, Quote Vault,
-      Base Amount, Quote Amount, Is Inner Instruction,
-      Instruction Index, Instruction Type
 
-- Flexible Integration
-  Acts as a backbone for Telegram bots, analytics dashboards, machine learning services, or real-time trading platforms.
+<b>The split between Indexer and Preprocessor allows the real-time component to focus on high-volume, low-latency ingestion while the preprocessor handles more resource-intensive historical enrichment. This division improves throughput and scalability.</b>
 
---------------------------------------------------------------------------------
+## Key Features
+### Multi-Protocol Support:
+Not just Raydium – the tool now supports several popular Solana DEXes such as Meteora, Orca, Base Uniswap, Eth Uniswap, and others.
 
-Getting Started
+### Real-Time Block Monitoring:
+Continuously fetches new blocks from the Solana blockchain to capture and decode swap transactions.
 
-1. Clone the Repository
-   git clone https://github.com/iamjakkie/Raydium-token-listener.git
-   cd solana-raydium-listener
+### Flexible Decoding:
+Extracts essential swap data (e.g., block date, block time, slot, token, price, USD price, volume) while handling variations in DEX instruction layouts.
 
-2. Install Rust (if you haven’t already)
-   Rust Installation Guide: https://www.rust-lang.org/tools/install
-   Make sure you can run `cargo --version` in your terminal.
+### Historical & Gap Processing:
+The Preprocessor ingests raw data from disk, fills in missing slots, enriches trade data with token metadata and pricing, and prepares the data for downstream analysis or backtesting.
 
-3. Build and Run
+### Modular & Extensible Architecture:
+The workspace structure lets you run Indexer and Preprocessor as separate services (or together) and easily integrate additional DEX decoders or enrichment features.
+
+## Getting Started
+### Prerequisites:
+  - Rust (latest stable version): https://www.rust-lang.org/tools/install
+  - A Solana RPC endpoint (default is "https://api.mainnet-beta.solana.com", configurable via environment variables)
+  - (Optional) AWS EC2 or another cloud provider to test latency improvements across different regions
+
+### Cloning & Building:
+1. Clone the repository:
+   git clone https://github.com/iamjakkie/Solana-dex-swap-listener.git
+   cd Solana-dex-swap-listener
+
+2. Build the workspace:
+   This repository is a Cargo workspace containing the "indexer", "preprocessor", and "common" modules. Build all targets in release mode:
    cargo build --release
+
+3. Run the Indexer:
+   To start real-time indexing, configure `indexer/main.rs` run:
+   cd indexer
+   cargo run --release \
+   THIS FUNCTIONALITY WILL BE ADDED SOON
+
+4. Run the Preprocessor:
+   To process historical data or fill gaps, run:
+   cd preprocessor
    cargo run --release
 
-   Or simply:
-   cargo run
+Configuration:
+  - RPC Endpoint:
+    Adjust the RPC endpoint via environment variables or in the configuration files.\
+    `SOLANA_RPC_URL`
+  - Output Paths:
+    The tool writes enriched trade data (CSV, Avro, Parquet, etc.) to configured directories. Adjust these as needed.
+    `OUTPUT_PATH`
 
-   This starts the application, which immediately begins fetching the latest blocks and decoding Raydium swaps.
+## Usage Example
+Below is a simplified example for the Indexer:
 
-4. Configure
-   - By default, the app may point to the mainnet RPC endpoint (https://api.mainnet-beta.solana.com).
-   - You can change the RPC or other settings in the code (or through environment variables if supported).
+```Rust
+  #[tokio::main]
+  async fn main() -> Result<(), Box<dyn std::error::Error>> {
+      let rpc_url = "https://api.mainnet-beta.solana.com";
+      // Instantiate and run the trade listener
+      let mut listener = TradeListener::new(rpc_url);
+      listener.run().await?;
+      Ok(())
+  }
+```
 
---------------------------------------------------------------------------------
+Under the hood, the tool:
+  - Connects to a Solana RPC endpoint.
+  - Continuously fetches and processes new blocks.
+  - Decodes swap instructions from multiple DEX protocols.
+  - Outputs enriched trade data for backtesting, trading bots, or analytics dashboards.
 
-Usage Example
+## Current Limitations
+• Inner Instruction Decoding:
+  Aggregated or inner instruction decoding (such as in Jupiter swaps) is not fully supported yet. This feature is under development. Most of the stuff works though.
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let rpc_url = "https://api.mainnet-beta.solana.com";
+• Performance Tuning:
+  While real-time ingestion is robust, extremely high throughput may require additional concurrency, batching, or network optimizations.
 
-    // Instantiate and run the trade listener
-    let mut listener = TradeListener::new(rpc_url);
-    listener.run().await?;
+## Roadmap
+1. Enhanced Decoding:
+   Expand support for inner instructions and additional DEX protocols.
+2. Improved Export Options:
+   Add direct database integrations and support for more file formats.
+3. Performance Optimization:
+   Further refine concurrency controls and network usage.
 
-    Ok(())
-}
+## Contributing
+1. Fork the repository.
+2. Create a new branch for your feature or bug fix.
+3. Submit a pull request with your changes.
 
-Here’s the essence of what the tool does under the hood:
-- Connects to a Solana RPC endpoint
-- Fetches/polls new blocks
-- Decodes Raydium swap instructions
-- Outputs TradeData logs or CSV rows you can feed into bots, dashboards, or ML workflows.
 
---------------------------------------------------------------------------------
+Your contributions, performance tips, and new decoder logic are always welcome!
 
-Current Limitations
+## License
+Distributed under the MIT License. You can use, modify, and distribute this project for personal or commercial purposes as long as the original license is included.
 
-- Inner Instructions
-  Transactions routed via aggregators (e.g., Jupiter) are not yet fully decoded. This feature is under development.
+## Questions or Feedback
+  - GitHub Issues:\
+    Open an issue on GitHub to report bugs, request features, or discuss improvements.
+  - Direct Contact:\
+    Reach out with ideas or inquiries—pull requests and forks are highly appreciated!
 
-- Performance
-  For large-scale usage or extremely high throughput, you may need more concurrency, batching, or other optimizations.
-
---------------------------------------------------------------------------------
-
-Roadmap
-
-1. Inner Instruction Support (Jupiter, etc.)
-2. Enhanced Export Options (e.g., direct database integration, more file formats)
-3. Performance Tuning for ultra-high-volume block flows
-
---------------------------------------------------------------------------------
-
-Contributing
-
-1. Fork the repo
-2. Create a new branch for your feature or bugfix
-3. Open a Pull Request (PR) with your changes
-
-All feedback and contributions are welcome—whether you’ve got performance tips or new decoder logic for aggregator instructions.
-
---------------------------------------------------------------------------------
-
-License
-
-Distributed under the MIT License. That means you can use, modify, and distribute this project for personal or commercial purposes, as long as you include the original license.
-
---------------------------------------------------------------------------------
-
-Questions or Feedback?
-
-- GitHub Issues: Open an issue to report bugs, request features, or general discussion.
-- Contact: Feel free to reach out with ideas or inquiries—PRs and forks welcome!
-
---------------------------------------------------------------------------------
-
-Happy building! This tool aims to simplify real-time Solana Raydium trade monitoring so you can focus on leveraging the data for your projects. Enjoy!
+Happy indexing and backtesting! This tool is designed to simplify real-time Solana DEX data ingestion and processing so you can focus on building your strategies.
