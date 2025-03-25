@@ -155,15 +155,15 @@ pub async fn process_tx(
                             &post_token_balances_vec,
                             &base_add,
                             &quote_add,
-                            &inners
-                                .first()
-                                .expect("Inner instructions not found")
-                                .instructions,
+                            // &inners
+                            //     .first()
+                            //     .expect("Inner instructions not found")
+                            //     .instructions,
                             timestamp,
                             slot,
                             &signature,
                             idx,
-                            &inners,
+                            // &inners,
                             &pre_balances,
                             &post_balances,
                             fee,
@@ -181,15 +181,15 @@ pub async fn process_tx(
                             &post_token_balances_vec,
                             &"".to_string(),
                             &"".to_string(),
-                            &inners
-                                .first()
-                                .expect("Inner instructions not found")
-                                .instructions,
+                            // &inners
+                            //     .first()
+                            //     .expect("Inner instructions not found")
+                            //     .instructions,
                             timestamp,
                             slot,
                             &signature,
                             idx,
-                            &inners,
+                            // &inners,
                             &pre_balances,
                             &post_balances,
                             fee,
@@ -209,15 +209,15 @@ pub async fn process_tx(
                             &post_token_balances_vec,
                             &base_add,
                             &quote_add,
-                            &inners
-                                .first()
-                                .expect("Inner instructions not found")
-                                .instructions,
+                            // &inners
+                            //     .first()
+                            //     .expect("Inner instructions not found")
+                            //     .instructions,
                             timestamp,
                             slot,
                             &signature,
                             idx,
-                            &inners,
+                            // &inners,
                             &pre_balances,
                             &post_balances,
                             fee,
@@ -235,15 +235,15 @@ pub async fn process_tx(
                             &post_token_balances_vec,
                             &"".to_string(),
                             &"".to_string(),
-                            &inners
-                                .first()
-                                .expect("Inner instructions not found")
-                                .instructions,
+                            // &inners
+                            //     .first()
+                            //     .expect("Inner instructions not found")
+                            //     .instructions,
                             timestamp,
                             slot,
                             &signature,
                             idx,
-                            &inners,
+                            // &inners,
                             &pre_balances,
                             &post_balances,
                             fee,
@@ -319,15 +319,15 @@ pub async fn process_tx(
                         &post_token_balances_vec,
                         &base_add,
                         &quote_add,
-                        &inners
-                            .first()
-                            .expect("Inner instructions not found")
-                            .instructions,
+                        // &inners
+                        //     .first()
+                        //     .expect("Inner instructions not found")
+                        //     .instructions,
                         timestamp,
                         slot,
                         &signature,
                         idx,
-                        &inners,
+                        // &inners,
                         &pre_balances,
                         &post_balances,
                         fee,
@@ -384,15 +384,15 @@ pub async fn process_tx(
                     &post_token_balances_vec,
                     &"".to_string(),
                     &"".to_string(),
-                    &inners
-                        .first()
-                        .expect("Inner instructions not found")
-                        .instructions,
+                    // &inners
+                    //     .first()
+                    //     .expect("Inner instructions not found")
+                    //     .instructions,
                     timestamp,
                     slot,
                     &signature,
                     idx,
-                    &inners,
+                    // &inners,
                     &pre_balances,
                     &post_balances,
                     fee,
@@ -412,15 +412,15 @@ pub async fn process_tx(
                     &post_token_balances_vec,
                     &base_add,
                     &quote_add,
-                    &inners
-                        .first()
-                        .expect("Inner instructions not found")
-                        .instructions,
+                    // &inners
+                    //     .first()
+                    //     .expect("Inner instructions not found")
+                    //     .instructions,
                     timestamp,
                     slot,
                     &signature,
                     idx,
-                    &inners,
+                    // &inners,
                     &pre_balances,
                     &post_balances,
                     fee,
@@ -438,15 +438,15 @@ pub async fn process_tx(
                     &post_token_balances_vec,
                     &"".to_string(),
                     &"".to_string(),
-                    &inners
-                        .first()
-                        .expect("Inner instructions not found")
-                        .instructions,
+                    // &inners
+                    //     .first()
+                    //     .expect("Inner instructions not found")
+                    //     .instructions,
                     timestamp,
                     slot,
                     &signature,
                     idx,
-                    &inners,
+                    // &inners,
                     &pre_balances,
                     &post_balances,
                     fee,
@@ -473,12 +473,10 @@ async fn build_trade_data(
     post_token_balances_vec: &Vec<TokenBalance>,
     base_add: &String,
     quote_add: &String,
-    inner_instructions: &Vec<UiInstruction>,
     timestamp: i64,
     slot: u64,
     signature: &String,
     idx: usize,
-    inners: &Vec<UiInnerInstructions>,
     pre_balances: &Vec<u64>,
     post_balances: &Vec<u64>,
     fee: u64,
@@ -492,7 +490,6 @@ async fn build_trade_data(
         post_token_balances_vec,
         &"".to_string(),
         false,
-        inner_instructions,
         0,
         base_add,
         quote_add,

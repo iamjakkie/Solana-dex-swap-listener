@@ -48,10 +48,10 @@ pub async fn process_block(
     let current_datetime = DateTime::<Utc>::from(current_time);
     let current_timestamp_str = current_datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
 
-    println!(
-        "Block time: {:?}, processed at: {:?}",
-        timestamp_str, current_timestamp_str
-    );
+    // println!(
+    //     "Block time: {:?}, processed at: {:?}",
+    //     timestamp_str, current_timestamp_str
+    // );
 
 
     // let file_path = format!("{}{}/{}.avro", OUTPUT_PATH.as_str(), date_str, slot);

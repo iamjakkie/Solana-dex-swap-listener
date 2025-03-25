@@ -198,7 +198,6 @@ pub fn get_trade_instruction(
     post_token_balances: &Vec<TokenBalance>,
     outer_program: &String,
     is_inner: bool,
-    inner_instructions: &Vec<UiInstruction>,
     input_inner_idx: u32,
     base_address: &String,
     quote_address: &String,
