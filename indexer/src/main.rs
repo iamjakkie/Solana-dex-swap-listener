@@ -12,10 +12,10 @@ use zmq;
 
 async fn run_indexer(/*publisher_arc: Option<Arc<Mutex<zmq::Socket>>>*/) {
         println!("Starting indexer");
-        // let start_slot = 311081162;
-        // let end_slot = 311292618;
-        let start_slot = 311292619;
-        let end_slot = start_slot + 20;
+        let start_slot = 251293572;
+        let end_slot = 323756378;
+        // let start_slot = 311292619;
+        // let end_slot = start_slot + 20;
 
         let max_concurrent_tasks = 25; // Limit to 10 concurrent tasks
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
@@ -27,22 +27,22 @@ async fn run_indexer(/*publisher_arc: Option<Arc<Mutex<zmq::Socket>>>*/) {
             // }
             
             let handle = tokio::spawn(async move {
-                let start_time = Instant::now();
+                // let start_time = Instant::now();
                 let block = fetch_block_with_version(block_num).await;
-                let block_end_time = start_time.elapsed();
-                println!("Block {} fetched in {:?}", block_num, block_end_time);
+                // let block_end_time = start_time.elapsed();
+                // println!("Block {} fetched in {:?}", block_num, block_end_time);
                 match block {
                     Ok(_) => {
                         let block = block.unwrap();
 
-                        println!("Processing block: {}", block_num);
+                        // println!("Processing block: {}", block_num);
                         // spawn a new thread to process_block
                         // tokio::spawn(async move {
-                        let start_time = Instant::now();
+                        // let start_time = Instant::now();
                         process_block(block_num, block, /*Some(publisher_clone)*/None).await;
                         // });
-                        let elapsed = start_time.elapsed();
-                        println!("Block {} processed in {:?}", block_num, elapsed);
+                        // let elapsed = start_time.elapsed();
+                        // println!("Block {} processed in {:?}", block_num, elapsed);
                     }
                     Err(e) => {
                         println!("Error: {:?}", e);
@@ -82,5 +82,8 @@ async fn main() {
     // // 2. Wrap the publisher in an Arc<Mutex> so we can share it
     let publisher_arc = Arc::new(Mutex::new(publisher));
 
+    let start = Instant::now();
     run_indexer().await;
+    let duration = start.elapsed();
+    println!("Indexer ran for {:?}", duration);
 }

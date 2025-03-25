@@ -565,7 +565,7 @@ fn get_system_program_transfer(
 
 pub async fn save_trades_to_avro(trades: &HashMap<String,Vec<TradeData>>, date_str: &str, slot: u64) -> Result<()> {
     if trades.is_empty() {
-        println!("No trades to save");
+        // println!("No trades to save");
         return Err(anyhow::anyhow!("No trades to save"));
     }
     let folder = format!("{}{}", OUTPUT_PATH.as_str(), date_str);
