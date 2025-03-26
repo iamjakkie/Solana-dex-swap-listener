@@ -20,6 +20,8 @@ use crate::models::Side::{Buy, Sell};
 
 const PUMP_FUN_SUPPLY: f64 = 1_000_000_000.0; // 1 billion
 
+const EXCHANGES: [&str;3] = ["METEORA", "RAYDIUM", "ORCA"];
+
 // lazy_static!(
 //     // SOLSCAN API KEY FROM ENV
 //     pub static ref SOLSCAN_API_KEY: String = env::var("SOLSCAN_API_KEY").expect("SOLSCAN_API_KEY must be set");
@@ -181,25 +183,45 @@ impl Preprocessor {
     //     Ok(())
     // }
 
-    async fn get_raw_files(&self, dir: &str) -> Vec<String> {
+    async fn get_raw_files(&self, dir: &str) -> Vec<(String, String)> {
         println!("Getting raw files");
-        let mut files = vec![];
+        let mut files: Vec<(String, String)> = vec![];
 
-        println!("{:?}", dir);
-
-        for entry in fs::read_dir(dir).expect("Failed to read directory") {
-            let entry = entry.expect("Failed to read entry");
-            let path = entry.path();
-            if path
-                .extension()
-                .map_or(false, |ext| ext == "csv" || ext == "avro")
-            {
-                files.push(path.to_string_lossy().into_owned());
+        for exchange in EXCHANGES {
+            let ex_dir = format!("{}/{}", dir, exchange);
+            for entry in fs::read_dir(ex_dir).expect("Failed to read directory") {
+                let entry = entry.expect("Failed to read entry");
+                let path = entry.path();
+                if path
+                    .extension()
+                    .map_or(false, |ext| ext == "avro")
+                {
+                    files.push((exchange.to_owned(), path.to_string_lossy().into_owned()));
+                }
             }
         }
 
+        
+
         files.sort(); // Ensure processing in order
         files
+    }
+
+    async fn get_min_max_slots(&self, files: &Vec<(String, String)>) -> Result<(u64, u64)> {
+        let mut min = u64::MAX;
+        let mut max = 0;
+
+        for (_, file) in files {
+            let slot = extract_slot_from_filename(file).unwrap();
+            if slot < min {
+                min = slot;
+            }
+            if slot > max {
+                max = slot;
+            }
+        }
+
+        Ok((min, max))
     }
 
     
@@ -287,10 +309,6 @@ impl Preprocessor {
     //     Ok(token_meta)
     // }
 
-    
-
-    
-
     async fn get_sol_price(&self, timestamp: u64) -> f64 {
         let mut price = 0.0;
         let timestamp = timestamp * 1_000_000;
@@ -309,64 +327,49 @@ impl Preprocessor {
         let processed_folder = format!("{}{}_processed", self.path.to_str().unwrap(), self.date);
         fs::create_dir_all(&processed_folder)?;
 
-        // TODO: make functions out of preprocessor
         let raw_files = self.get_raw_files(folder.as_str()).await;
-        let min = extract_slot_from_filename(raw_files.first().unwrap()).unwrap();
+        let (min, max) = self.get_min_max_slots(&raw_files).await?;
+        // let min = extract_slot_from_filename(raw_files.first().unwrap()).unwrap();
         println!("Min: {}", min);
-        let max = extract_slot_from_filename(raw_files.last().unwrap()).unwrap();
+        // let max = extract_slot_from_filename(raw_files.last().unwrap()).unwrap();
         println!("Max: {}", max);
 
-        let slots = (min..=max).collect::<Vec<u64>>();
-        let max_concurrent_tasks = 30;
-        let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        for slot in slots {
-            let permit = semaphore.clone().acquire_owned().await?;
-            let self_clone = Arc::clone(&self);
-            let handle = tokio::spawn(async move {
-                self_clone.process_slot(slot).await;
-                drop(permit);
-            });
-            handle.await?;
-        }
+        println!("Processing slots from {} to {}", min, max);
 
-        self.save(&processed_folder).await?;
+        // let slots = (min..=max).collect::<Vec<u64>>();
+        // let max_concurrent_tasks = 30;
+        // let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
+        // for slot in slots {
+        //     let permit = semaphore.clone().acquire_owned().await?;
+        //     let self_clone = Arc::clone(&self);
+        //     let handle = tokio::spawn(async move {
+        //         self_clone.process_slot(slot).await;
+        //         drop(permit);
+        //     });
+        //     handle.await?;
+        // }
+
+        // self.save(&processed_folder).await?;
         Ok(())
     }
 
     async fn process_slot(&self, slot: u64) -> Result<()>{
-        // 1. Check if slot.csv and slot.avro exist
 
         println!("Processing slot: {}", slot);
 
         let slot_str = slot.to_string();
-        let csv_file = format!("{}{}/{}.csv", self.path.to_str().unwrap(), self.date, slot_str);
         let avro_file = format!("{}{}/{}.avro", self.path.to_str().unwrap(), self.date, slot_str);
 
         let mut file_path = "".to_string();
 
         let mut is_verified = false;
 
-
-        if Path::new(&csv_file).exists() && Path::new(&avro_file.clone()).exists() {
-            // delete csv file, validate avro file
-            fs::remove_file(&csv_file).expect("Failed to remove csv file");
+        if Path::new(&avro_file.clone()).exists() {
             if self.verify_slot(&avro_file.clone()) {
                 is_verified = true;
                 file_path = avro_file.clone();
             }
-        } else if Path::new(&csv_file).exists() {
-            // validate csv file
-            if self.verify_slot(&csv_file) {
-                is_verified = true;
-                file_path = csv_file;
-            }
-        } else if Path::new(&avro_file.clone()).exists() {
-            // validate avro file
-            if self.verify_slot(&avro_file.clone()) {
-                is_verified = true;
-                file_path = avro_file.clone();
-            }
-        } 
+        }
         
         if !is_verified {
             for attempt in 1..=3 {
@@ -404,15 +407,8 @@ impl Preprocessor {
 
     fn verify_slot(&self, file: &str) -> bool {
         let mut lines = 0;
-        if file.ends_with(".csv") {
-            let mut rdr = csv::Reader::from_path(&file).expect("Failed to read csv file");
-            for _ in rdr.records() {
-                lines += 1;
-            }
-        } else if file.ends_with(".avro") {
-            let rdr = avro_rs::Reader::new(File::open(&file).expect(format!("Failed to read avro file: {}", file).as_str())).expect("Failed to read avro file");
-            lines = rdr.count();
-        }
+        let rdr = avro_rs::Reader::new(File::open(&file).expect(format!("Failed to read avro file: {}", file).as_str())).expect("Failed to read avro file");
+        lines = rdr.count();
 
         if lines == 0 {
             return false;
