@@ -39,6 +39,7 @@ pub struct ProcessedTrade {
     /// Block slot number.
     pub block_slot: u64,
     pub signature: String,
+    pub exchange: String,
     /// The token being traded – the token that isn’t SOL.
     pub token: String,
     pub side: Side,

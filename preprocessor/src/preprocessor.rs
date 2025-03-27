@@ -20,8 +20,6 @@ use crate::models::Side::{Buy, Sell};
 
 const PUMP_FUN_SUPPLY: f64 = 1_000_000_000.0; // 1 billion
 
-const EXCHANGES: [&str;3] = ["METEORA", "RAYDIUM", "ORCA"];
-
 // lazy_static!(
 //     // SOLSCAN API KEY FROM ENV
 //     pub static ref SOLSCAN_API_KEY: String = env::var("SOLSCAN_API_KEY").expect("SOLSCAN_API_KEY must be set");
@@ -31,7 +29,7 @@ const EXCHANGES: [&str;3] = ["METEORA", "RAYDIUM", "ORCA"];
 pub struct Preprocessor {
     pub path: PathBuf,
     date: String,
-    swaps: Arc<Mutex<HashMap<String, Vec<ProcessedTrade>>>>,
+    swaps: Arc<Mutex<HashMap<String, HashMap<String, Vec<ProcessedTrade>>>>>,
     // pub db_client: tokio_postgres::Client,
     // token_meta_map: Arc<Mutex<HashMap<String, TokenMeta>>>,
     sol_prices: Vec<KlineData>,
@@ -183,35 +181,31 @@ impl Preprocessor {
     //     Ok(())
     // }
 
-    async fn get_raw_files(&self, dir: &str) -> Vec<(String, String)> {
+    async fn get_raw_files(&self, dir: &str) -> Vec<String> {
         println!("Getting raw files");
-        let mut files: Vec<(String, String)> = vec![];
+        let mut files: Vec<String> = vec![];
 
-        for exchange in EXCHANGES {
-            let ex_dir = format!("{}/{}", dir, exchange);
-            for entry in fs::read_dir(ex_dir).expect("Failed to read directory") {
-                let entry = entry.expect("Failed to read entry");
-                let path = entry.path();
-                if path
-                    .extension()
-                    .map_or(false, |ext| ext == "avro")
-                {
-                    files.push((exchange.to_owned(), path.to_string_lossy().into_owned()));
-                }
+        for entry in fs::read_dir(dir).expect("Failed to read directory") {
+            let entry = entry.expect("Failed to read entry");
+            let path = entry.path();
+            if path
+                .extension()
+                .map_or(false, |ext| ext == "avro")
+            {
+                files.push(path.to_str().unwrap().to_string());
             }
         }
-
         
 
         files.sort(); // Ensure processing in order
         files
     }
 
-    async fn get_min_max_slots(&self, files: &Vec<(String, String)>) -> Result<(u64, u64)> {
+    async fn get_min_max_slots(&self, files: &Vec<String>) -> Result<(u64, u64)> {
         let mut min = u64::MAX;
         let mut max = 0;
 
-        for (_, file) in files {
+        for file in files {
             let slot = extract_slot_from_filename(file).unwrap();
             if slot < min {
                 min = slot;
@@ -322,9 +316,9 @@ impl Preprocessor {
     }
 
     async fn process(self: Arc<Self>) -> Result<()> {
-        let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
+        let folder = format!("{}/{}", self.path.to_str().unwrap(), self.date);
 
-        let processed_folder = format!("{}{}_processed", self.path.to_str().unwrap(), self.date);
+        let processed_folder = folder.replace("raw", "normalized");
         fs::create_dir_all(&processed_folder)?;
 
         let raw_files = self.get_raw_files(folder.as_str()).await;
@@ -355,10 +349,8 @@ impl Preprocessor {
 
     async fn process_slot(&self, slot: u64) -> Result<()>{
 
-        println!("Processing slot: {}", slot);
-
         let slot_str = slot.to_string();
-        let avro_file = format!("{}{}/{}.avro", self.path.to_str().unwrap(), self.date, slot_str);
+        let avro_file = format!("{}/{}/{}.avro", self.path.to_str().unwrap(), self.date, slot_str);
 
         let mut file_path = "".to_string();
 
@@ -417,28 +409,19 @@ impl Preprocessor {
         }
     }
 
-    async fn process_file(&self, file_path: &str) -> Result<()> {
-        let slot = extract_slot_from_filename(file_path).unwrap();
-        let output_avro_path = format!("{}{}_processed/{}.avro", self.path.to_str().unwrap(), self.date, slot);
-        
+    async fn process_file(&self, file_path: &str) -> Result<()> {        
         let mut trades: Vec<TradeData> = vec![];
 
         let file = file_path.to_string();
-        if file.ends_with(".csv") {
-            let mut rdr = csv::Reader::from_path(&file)?;
-            trades = rdr.deserialize::<TradeData>().into_iter().map(|r| r.unwrap()).collect();
-            
-        } else if file.ends_with(".avro") {
-            let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
-            trades = rdr.map(|r| avro_rs::from_value(&r.unwrap()).unwrap()).collect();
-        }
+        let mut rdr = avro_rs::Reader::new(File::open(&file)?)?;
+        trades = rdr.map(|r| avro_rs::from_value(&r.unwrap()).unwrap()).collect();
 
-        self.process_trades(output_avro_path.as_str(), &trades).await?;
+        self.process_trades(&trades).await?;
 
         Ok(())
     }
 
-    async fn process_trades(&self, output_file: &str, trades: &Vec<TradeData>) -> Result<()> {
+    async fn process_trades(&self, trades: &Vec<TradeData>) -> Result<()> {
         if trades.is_empty() {
             return Ok(());
         }
@@ -459,9 +442,9 @@ impl Preprocessor {
 
             let token_sol_price = sol_amount/token_amount;
 
-            if !traded_token.ends_with("pump") {
-                continue;
-            }
+            // if !traded_token.ends_with("pump") {
+            //     continue;
+            // }
 
             let sol_price = Some(self.get_sol_price(trade.block_time.try_into().unwrap()).await).expect("Failed to get SOL price");
             // let meta = self
@@ -475,23 +458,38 @@ impl Preprocessor {
             //     None => 0.0,
             // };
 
+            let mcap = if traded_token.ends_with("pump") {
+                (PUMP_FUN_SUPPLY * token_sol_price * sol_price).abs()
+            } else {
+                0.0
+            };
+
+            let exchange = match trade.outer_program.as_str() {
+                "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" => "RAYDIUM",
+                "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB" => "METEORA",
+                "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo" => "METEORA",
+                "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc" => "ORCA",
+                _ => "UNKNOWN",
+            };
+
             let processed_trade = ProcessedTrade {
                 block_date: NaiveDateTime::from_timestamp(trade.block_time.try_into().unwrap(), 0).date().to_string(),
                 block_time: trade.block_time,
                 block_slot: trade.block_slot,
                 signature: trade.signature.clone(),
+                exchange: exchange.to_string(),
                 token: traded_token.clone(),
                 side: if sol_amount > 0.0 { Buy } else { Sell },
                 token_amount: token_amount.abs(),
                 sol_amount: sol_amount.abs(),
                 sol_usd_price: sol_price,
-                sol_price: token_sol_price,
-                usd_price: token_sol_price * sol_price,
-                volume: sol_amount.abs() * sol_price,
-                market_cap: (PUMP_FUN_SUPPLY * token_sol_price * sol_price),
+                sol_price: token_sol_price.abs(),
+                usd_price: (token_sol_price * sol_price).abs(),
+                volume: (sol_amount.abs() * sol_price).abs(),
+                market_cap: mcap,
             };
 
-            self.swaps.lock().await.entry(traded_token.clone()).or_insert(vec![]).push(processed_trade);
+            self.swaps.lock().await.entry(exchange.to_string()).or_insert(HashMap::new()).entry(traded_token.clone()).or_insert(vec![]).push(processed_trade);
         }
 
         Ok(())
@@ -500,91 +498,55 @@ impl Preprocessor {
 
     async fn save(&self, output_path: &str) -> Result<()> {
         // save processed trades to parquet files, one per token
-        for (token, trades) in self.swaps.lock().await.iter() {
-            // Create a DataFrame from trades.
-            // Build columns (Series) for each field.
-            let block_date: Vec<String> = trades.iter().map(|t| t.block_date.clone()).collect();
-            let block_time: Vec<i64> = trades.iter().map(|t| t.block_time).collect();
-            let block_slot: Vec<i64> = trades.iter().map(|t| t.block_slot as i64).collect();
-            let signature_col: Vec<String> = trades.iter().map(|t| t.signature.clone()).collect();
-            let token_col: Vec<String> = trades.iter().map(|t| t.token.clone()).collect();
-            let side_col: Vec<String> = trades.iter().map(|t| t.side.to_string()).collect();
-            let token_amount: Vec<f64> = trades.iter().map(|t| t.token_amount).collect();
-            let sol_amount: Vec<f64> = trades.iter().map(|t| t.sol_amount).collect();
-            let sol_usd_price: Vec<f64> = trades.iter().map(|t| t.sol_usd_price).collect();
-            let sol_price: Vec<f64> = trades.iter().map(|t| t.sol_price).collect();
-            let usd_price: Vec<f64> = trades.iter().map(|t| t.usd_price).collect();
-            let volume: Vec<f64> = trades.iter().map(|t| t.volume).collect();
-            let market_cap: Vec<f64> = trades.iter().map(|t| t.market_cap).collect();
+        for (exchange, trades) in self.swaps.lock().await.iter() {
+            let folder = format!("{}/{}", output_path, exchange);
+                fs::create_dir_all(&folder)?;
+            for (token, trades) in trades {
+                // Create a DataFrame from trades.
+                // Build columns (Series) for each field.
+                let block_date: Vec<String> = trades.iter().map(|t| t.block_date.clone()).collect();
+                let block_time: Vec<i64> = trades.iter().map(|t| t.block_time).collect();
+                let block_slot: Vec<i64> = trades.iter().map(|t| t.block_slot as i64).collect();
+                let signature_col: Vec<String> = trades.iter().map(|t| t.signature.clone()).collect();
+                let token_col: Vec<String> = trades.iter().map(|t| t.token.clone()).collect();
+                let side_col: Vec<String> = trades.iter().map(|t| t.side.to_string()).collect();
+                let token_amount: Vec<f64> = trades.iter().map(|t| t.token_amount).collect();
+                let sol_amount: Vec<f64> = trades.iter().map(|t| t.sol_amount).collect();
+                let sol_usd_price: Vec<f64> = trades.iter().map(|t| t.sol_usd_price).collect();
+                let sol_price: Vec<f64> = trades.iter().map(|t| t.sol_price).collect();
+                let usd_price: Vec<f64> = trades.iter().map(|t| t.usd_price).collect();
+                let volume: Vec<f64> = trades.iter().map(|t| t.volume).collect();
+                let market_cap: Vec<f64> = trades.iter().map(|t| t.market_cap).collect();
 
-            // Construct the DataFrame.
-            // add bought token, sold token, bought amt, sold amt, signature, tx id
-            let mut df = df![
-                "block_date" => block_date,
-                "block_time" => block_time,
-                "block_slot" => block_slot,
-                "signature" => signature_col,
-                "token" => token_col,
-                "side" => side_col,
-                "token_amount" => token_amount,
-                "sol_amount" => sol_amount,
-                "sol_usd_price" => sol_usd_price,
-                "sol_price" => sol_price,
-                "usd_price" => usd_price,
-                "volume" => volume,
-                "market_cap" => market_cap
-            ]?;
+                // Construct the DataFrame.
+                // add bought token, sold token, bought amt, sold amt, signature, tx id
+                let mut df = df![
+                    "block_date" => block_date,
+                    "block_time" => block_time,
+                    "block_slot" => block_slot,
+                    "signature" => signature_col,
+                    "token" => token_col,
+                    "side" => side_col,
+                    "token_amount" => token_amount,
+                    "sol_amount" => sol_amount,
+                    "sol_usd_price" => sol_usd_price,
+                    "sol_price" => sol_price,
+                    "usd_price" => usd_price,
+                    "volume" => volume,
+                    "market_cap" => market_cap
+                ]?;
 
-            let file_path = (format!("{}/{}.parquet", output_path, token));
-            let file = File::create(file_path)?;
-            let mut writer = ParquetWriter::new(file);
-            writer.finish(&mut df)?;
-            
+
+                let file_path = (format!("{}/{}.parquet", folder, token));
+                let file = File::create(file_path)?;
+                let mut writer = ParquetWriter::new(file);
+                writer.finish(&mut df).unwrap();
+                
+            }
         }
 
         Ok(())
     }
-
-    // async fn cleanup(&self, raw_files: &Vec<String>) -> Result<()> {
-    //     let folder = format!("{}{}", self.path.to_str().unwrap(), self.date);
-    //     let zip_file = format!("{}{}.zip", self.path.to_str().unwrap(), self.date);
-
-    //     // Create the zip file.
-    //     let file = File::create(&zip_file)?;
-    //     let buf_writer = BufWriter::new(file);
-    //     let mut zip = zip::ZipWriter::new(buf_writer);
-    //     let options: FileOptions<()> = FileOptions::default().compression_method(CompressionMethod::Deflated);
-    //     let mut buffer = Vec::new();
-
-    //     // Walk through the folder recursively.
-    //     for entry in raw_files {
-    //         let path = Path::new(&entry);
-    //         // Get the relative path within the folder.
-    //         let name = path.strip_prefix(&folder)?.to_str().unwrap();
-
-    //         if path.is_file() {
-    //             // Add file to the zip.
-    //             zip.start_file(name, options)?;
-    //             let mut f = File::open(path)?;
-    //             f.read_to_end(&mut buffer)?;
-    //             zip.write_all(&buffer)?;
-    //             buffer.clear();
-    //         } else if path.is_dir() && !name.is_empty() {
-    //             // Add directory entry.
-    //             zip.add_directory(name, options)?;
-    //         }
-    //     }
-
-    //     zip.finish()?; // Finalize the zip archive.
-    //     println!("Successfully zipped {} to {}", folder, zip_file);
-
-    //     // Remove the original folder.
-    //     fs::remove_dir_all(&folder)?;
-    //     println!("Deleted original folder {}", folder);
-
-    //     Ok(())
-
-    // }
 
     pub async fn run(self: Arc<Self>) {
         let preprocessor_clone = Arc::clone(&self);
@@ -593,8 +555,6 @@ impl Preprocessor {
         // });
 
         let _ = self.process().await;
-
-        // self.cleanup().await.expect("Failed to cleanup");
     }
 }
 

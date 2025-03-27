@@ -13,6 +13,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 use avro_rs::{Codec, Schema, Writer};
 
@@ -117,7 +118,6 @@ fn fix(path: &str) {
             let mut record = Record::new(&AVRO_SCHEMA_TRADE).expect("Failed to create Avro record");
             record.put("block_date", trade.block_date.clone());
             record.put("block_time", trade.block_time);
-            // Convert u64 to i64
             record.put("block_slot", trade.block_slot as i64);
             record.put("signature", trade.signature.clone());
             record.put("tx_id", trade.tx_id.clone());
@@ -152,10 +152,12 @@ fn fix(path: &str) {
 
 #[tokio::main]
 async fn main() {
-    let path = format!("{}/2025-01-01", env::var("DATA_PATH").unwrap());
-    fix(&path);
-    // let preprocessor = preprocessor::Preprocessor::new(&path, "2025-01-01").await;
+    let path = format!("{}", env::var("DATA_PATH").unwrap());
+    // fix(&path);
+    let preprocessor = preprocessor::Preprocessor::new(&path, "2025-01-01").await;
 
-    // let preprocessor = Arc::new(preprocessor);
-    // preprocessor.run().await; 
+    let preprocessor = Arc::new(preprocessor);
+    let start_time = Instant::now();
+    preprocessor.run().await; 
+    println!("Time taken: {:?}", start_time.elapsed());
 }
