@@ -26,6 +26,7 @@ fn parse_raydium_trade_instruction(
         9 => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"),
+                dex: String::from("RAYDIUM"),
                 name: String::from("SwapBaseIn"),
                 amm: input_accounts.get(1).unwrap().to_string(),
                 vault_a: base_address.to_string(),
@@ -36,6 +37,7 @@ fn parse_raydium_trade_instruction(
         11 => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"),
+                dex: String::from("RAYDIUM"),
                 name: String::from("SwapBaseOut"),
                 amm: input_accounts.get(1).unwrap().to_string(),
                 vault_a: base_address.to_string(),
@@ -65,6 +67,7 @@ fn parse_meteora_trade_instruction(
         SWAP_WITH_PARTNER_DISCRIMINATOR => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB"),
+                dex: String::from("METEORA"),
                 name: String::from("Swap"),
                 amm: accounts.get(0).unwrap().to_string(),
                 vault_a: accounts.get(5).unwrap().to_string(),
@@ -92,6 +95,7 @@ fn parse_meteora_dlmm_trade_instruction(
         SWAP_DISCRIMINATOR => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"),
+                dex: String::from("METEORA"),
                 name: String::from("Swap"),
                 amm: input_accounts.get(0).unwrap().to_string(),
                 vault_a: input_accounts.get(2).unwrap().to_string(),
@@ -102,6 +106,7 @@ fn parse_meteora_dlmm_trade_instruction(
         SWAP_EXACT_OUT_DISCRIMINATOR => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"),
+                dex: String::from("METEORA"),
                 name: String::from("SwapExactOut"),
                 amm: input_accounts.get(0).unwrap().to_string(),
                 vault_a: input_accounts.get(2).unwrap().to_string(),
@@ -112,6 +117,7 @@ fn parse_meteora_dlmm_trade_instruction(
         SWAP_WITH_PRICE_IMPACT_DISCRIMINATOR => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"),
+                dex: String::from("METEORA"),
                 name: String::from("SwapWithPriceImpact"),
                 amm: input_accounts.get(0).unwrap().to_string(),
                 vault_a: input_accounts.get(2).unwrap().to_string(),
@@ -139,6 +145,7 @@ fn parse_orca_trade_instruction(
         14449647541112719096 => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"),
+                dex: String::from("ORCA"),
                 name: String::from("Swap"),
                 amm: accounts.get(2).unwrap().to_string(),
                 vault_a: accounts.get(4).unwrap().to_string(),
@@ -149,6 +156,7 @@ fn parse_orca_trade_instruction(
         7070309578724672555 => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"),
+                dex: String::from("ORCA"),
                 name: String::from("SwapV2"),
                 amm: accounts.get(4).unwrap().to_string(),
                 vault_a: accounts.get(8).unwrap().to_string(),
@@ -159,6 +167,7 @@ fn parse_orca_trade_instruction(
         16635068063392030915 => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"),
+                dex: String::from("ORCA"),
                 name: String::from("TwoHopSwap"),
                 amm: accounts.get(2).unwrap().to_string(),
                 vault_a: accounts.get(5).unwrap().to_string(),
@@ -172,6 +181,7 @@ fn parse_orca_trade_instruction(
         8485347938364657594 => {
             result = Some(TradeInstruction {
                 dapp_address: String::from("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"),
+                dex: String::from("ORCA"),
                 name: String::from("TwoHopSwapV2"),
                 amm: accounts.get(0).unwrap().to_string(),
                 vault_a: accounts.get(9).unwrap().to_string(),

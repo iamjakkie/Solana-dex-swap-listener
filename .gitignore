@@ -141,3 +141,5 @@ trades.csv
 /target
 
 .codegpt
+
+*.bin

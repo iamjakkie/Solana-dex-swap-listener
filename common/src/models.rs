@@ -5,6 +5,7 @@ use solana_sdk::pubkey::Pubkey;
 #[derive(Debug)]
 pub struct TradeInstruction {
     pub dapp_address: String,
+    pub dex: String,
     pub name: String,
     pub amm: String,
     pub vault_a: String,
@@ -15,6 +16,7 @@ impl Default for TradeInstruction {
     fn default() -> Self {
         TradeInstruction {
             dapp_address: "".to_string(),
+            dex: "".to_string(),
             name: "".to_string(),
             amm: "".to_string(),
             vault_a: "".to_string(),

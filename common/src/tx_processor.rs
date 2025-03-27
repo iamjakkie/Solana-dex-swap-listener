@@ -26,7 +26,7 @@ pub async fn process_tx(
     trx: EncodedTransactionWithStatusMeta,
     slot: u64,
     timestamp: i64,
-) -> Option<HashMap<String,Vec<TradeData>>> {
+) -> Option<Vec<TradeData>> {
     let trx_meta = trx.meta.unwrap();
     if trx_meta.err.is_some() {
         return None;
@@ -112,7 +112,7 @@ pub async fn process_tx(
         post_token_balances_vec.push(token_balance);
     }
 
-    let mut trades: HashMap<String,Vec<TradeData>> = HashMap::new();
+    let mut trades: Vec<TradeData> = vec![];
 
     let fee = trx_meta.fee;
 
@@ -168,7 +168,7 @@ pub async fn process_tx(
                             &post_balances,
                             fee,
                         ).await {
-                            trades.entry("RAYDIUM".to_string()).or_insert(vec![]).push(trade);
+                            trades.push(trade);
                         }
                     },
                     ORCA_PROGRAM_ID => {
@@ -194,7 +194,7 @@ pub async fn process_tx(
                             &post_balances,
                             fee,
                         ).await {
-                            trades.entry("ORCA".to_string()).or_insert(vec![]).push(trade);
+                            trades.push(trade);
                         }
                     },
                     METEORA_PROGRAM_ID => {
@@ -222,7 +222,7 @@ pub async fn process_tx(
                             &post_balances,
                             fee,
                         ).await {
-                            trades.entry("METEORA".to_string()).or_insert(vec![]).push(trade);
+                            trades.push(trade);
                         }
                     },
                     METEORA_DLMM_PROGRAM_ID => {
@@ -248,38 +248,13 @@ pub async fn process_tx(
                             &post_balances,
                             fee,
                         ).await {
-                            trades.entry("METEORA".to_string()).or_insert(vec![]).push(trade);
+                            trades.push(trade);
                         }
                     }
                     // if not found - check inner instructions
-                    _ => {
-                        // something's fucked up here - inner is repeated 4 times (clone)
-                        
+                    _ => {                        
                     }
                 }
-                // if program_add == METEORA_DLMM_PROGRAM_ID {
-                //     if let Some(trade) = build_trade_data(
-                //         program_add,
-                //         &program_data,
-                //         &compiled.accounts,
-                //         &all_addresses,
-                //         &pre_token_balances_vec,
-                //         &post_token_balances_vec,
-                //         &"".to_string(),
-                //         &"".to_string(),
-                //         &inner.instructions,
-                //         timestamp,
-                //         slot,
-                //         &signature,
-                //         idx,
-                //         &inners,
-                //         &pre_balances,
-                //         &post_balances,
-                //         fee,
-                //     ).await {
-                //         trades.entry("METEORA".to_string()).or_insert(vec![]).push(trade);
-                //     }
-                // }
             }
         }
     }
@@ -332,48 +307,10 @@ pub async fn process_tx(
                         &post_balances,
                         fee,
                     ).await {
-                        trades.entry("RAYDIUM".to_string()).or_insert(vec![]).push(trade);
+                        trades.push(trade);
                     }
                 }
             }
-            // JUPITER_PROGRAM_ID => {
-            //     for inner in inners.iter() {
-            //         for inner_inst in inner.instructions.iter() {
-            //             if let solana_transaction_status::UiInstruction::Compiled(compiled) = inner_inst {
-            //                 let program_data = match bs58::decode(compiled.data.clone()).into_vec() {
-            //                     Ok(data) => data,
-            //                     Err(_) => continue,
-            //                 };
-            //                 let program_add = all_addresses.get(compiled.program_id_index as usize)?;
-            //                 if program_add == RAYDIUM_PROGRAM_ID { // match other programs
-            //                     let base_add = all_addresses.get(compiled.accounts[4] as usize)?.clone();
-            //                     let quote_add = all_addresses.get(compiled.accounts[5] as usize)?.clone();
-            //                     if let Some(trade) = build_trade_data(
-            //                         program_add,
-            //                         &program_data,
-            //                         &compiled.accounts,
-            //                         &all_addresses,
-            //                         &pre_token_balances_vec,
-            //                         &post_token_balances_vec,
-            //                         &base_add,
-            //                         &quote_add,
-            //                         &inner.instructions,
-            //                         timestamp,
-            //                         slot,
-            //                         &signature,
-            //                         idx,
-            //                         &inners,
-            //                         &pre_balances,
-            //                         &post_balances,
-            //                         fee,
-            //                     ).await {
-            //                         trades.entry("RAYDIUM".to_string()).or_insert(vec![]).push(trade);
-            //                     }
-            //                 }
-            //             }
-            //         }
-            //     }
-            // },
             ORCA_PROGRAM_ID => {
                 if let Some(trade) = build_trade_data(
                     main_program,
@@ -397,7 +334,7 @@ pub async fn process_tx(
                     &post_balances,
                     fee,
                 ).await {
-                    trades.entry("ORCA".to_string()).or_insert(vec![]).push(trade);
+                    trades.push(trade);
                 }
             },
             METEORA_PROGRAM_ID => {
@@ -412,20 +349,15 @@ pub async fn process_tx(
                     &post_token_balances_vec,
                     &base_add,
                     &quote_add,
-                    // &inners
-                    //     .first()
-                    //     .expect("Inner instructions not found")
-                    //     .instructions,
                     timestamp,
                     slot,
                     &signature,
                     idx,
-                    // &inners,
                     &pre_balances,
                     &post_balances,
                     fee,
                 ).await {
-                    trades.entry("METEORA".to_string()).or_insert(vec![]).push(trade);
+                    trades.push(trade);
                 }
             },
             METEORA_DLMM_PROGRAM_ID => {
@@ -438,20 +370,15 @@ pub async fn process_tx(
                     &post_token_balances_vec,
                     &"".to_string(),
                     &"".to_string(),
-                    // &inners
-                    //     .first()
-                    //     .expect("Inner instructions not found")
-                    //     .instructions,
                     timestamp,
                     slot,
                     &signature,
                     idx,
-                    // &inners,
                     &pre_balances,
                     &post_balances,
                     fee,
                 ).await {
-                    trades.entry("METEORA".to_string()).or_insert(vec![]).push(trade);
+                    trades.push(trade);
                 }
             }
             // if not found - check inner instructions
@@ -511,26 +438,6 @@ async fn build_trade_data(
             quote_mint: get_mint(&td.vault_b, post_token_balances_vec).await.ok_or(format!("Quote mint not found for signature {}, vault: {}", signature, td.vault_b)).unwrap(),
             base_amount: get_amount(&td.vault_a, pre_token_balances_vec, post_token_balances_vec).await,
             quote_amount: get_amount(&td.vault_b, pre_token_balances_vec, post_token_balances_vec).await,
-            // base_amount: get_amt(
-            //     &td.vault_a,
-            //     0,
-            //     inners,
-            //     accounts,
-            //     post_token_balances_vec,
-            //     td_address.clone(),
-            //     pre_balances.clone(),
-            //     post_balances.clone(),
-            // ),
-            // quote_amount: get_amt(
-            //     &td.vault_b,
-            //     0,
-            //     inners,
-            //     accounts,
-            //     post_token_balances_vec,
-            //     "".to_string(),
-            //     pre_balances.clone(),
-            //     post_balances.clone(),
-            // ),
             base_vault: td.vault_a,
             quote_vault: td.vault_b,
             is_inner_instruction: false,

@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use chrono::{NaiveDate, NaiveDateTime, Datelike, Timelike};
+use chrono::{NaiveDate, NaiveDateTime};
 use common::{
     block_processor::process_block, models::{KlineData, TradeData}, pricer::{fetch_klines_for_date, store_klines}, rpc_client::fetch_block_with_version
 };
@@ -7,15 +7,15 @@ use common::{
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use std::{
-    collections::{BTreeSet, HashMap, HashSet}, env, fs::{self, File, OpenOptions}, io::{BufReader, BufWriter, Read, Write}, path::{Path, PathBuf}, sync::Arc, time::Duration
+    collections::{HashMap}, fs::{self, File}, io::{BufReader}, path::{Path, PathBuf}, sync::Arc, time::Duration
 };
 use tokio::{
     sync::{Mutex, Semaphore},
-    time::{self, sleep, timeout},
+    time::{sleep},
 };
 use polars::prelude::*;
 
-use crate::models::{TokenMeta, ProcessedTrade};
+use crate::models::{ProcessedTrade};
 use crate::models::Side::{Buy, Sell};
 
 const PUMP_FUN_SUPPLY: f64 = 1_000_000_000.0; // 1 billion
@@ -336,20 +336,20 @@ impl Preprocessor {
 
         println!("Processing slots from {} to {}", min, max);
 
-        // let slots = (min..=max).collect::<Vec<u64>>();
-        // let max_concurrent_tasks = 30;
-        // let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        // for slot in slots {
-        //     let permit = semaphore.clone().acquire_owned().await?;
-        //     let self_clone = Arc::clone(&self);
-        //     let handle = tokio::spawn(async move {
-        //         self_clone.process_slot(slot).await;
-        //         drop(permit);
-        //     });
-        //     handle.await?;
-        // }
+        let slots = (min..=max).collect::<Vec<u64>>();
+        let max_concurrent_tasks = 30;
+        let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
+        for slot in slots {
+            let permit = semaphore.clone().acquire_owned().await?;
+            let self_clone = Arc::clone(&self);
+            let handle = tokio::spawn(async move {
+                self_clone.process_slot(slot).await;
+                drop(permit);
+            });
+            handle.await?;
+        }
 
-        // self.save(&processed_folder).await?;
+        self.save(&processed_folder).await?;
         Ok(())
     }
 

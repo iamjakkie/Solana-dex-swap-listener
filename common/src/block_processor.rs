@@ -22,7 +22,7 @@ pub async fn process_block(
     publisher_clone: Option<Arc<Mutex<zmq::Socket>>>,
 ) -> Result<()> {
     let timestamp = block.block_time.expect("Block time not found");
-    let mut data: HashMap<String, Vec<TradeData>> = HashMap::new();
+    let mut data: Vec<TradeData> = vec![];
 
     // convert timestamp to human readable timestamp
     let d = UNIX_EPOCH + Duration::from_secs(timestamp.try_into().unwrap());
@@ -36,9 +36,7 @@ pub async fn process_block(
     for trx in block.transactions {
         match process_tx(trx, slot, timestamp).await {
             Some(trades) => {
-                for (exchange, ex_trades) in trades.iter() {
-                    data.entry(exchange.to_string()).or_insert(vec![]).extend(ex_trades.iter().cloned());
-                }
+                data.extend(trades);
             }
             None => {}
         }
@@ -48,16 +46,6 @@ pub async fn process_block(
     let current_datetime = DateTime::<Utc>::from(current_time);
     let current_timestamp_str = current_datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
 
-    // println!(
-    //     "Block time: {:?}, processed at: {:?}",
-    //     timestamp_str, current_timestamp_str
-    // );
-
-
-    // let file_path = format!("{}{}/{}.avro", OUTPUT_PATH.as_str(), date_str, slot);
-    // TODO: fix paths, incosistent across modules
-
-    // save_trades_to_csv(&data, file_path.as_str()).await.expect("Failed to save trades to csv");
     save_trades_to_avro(&data, &date_str, slot)
         .await?;
 
