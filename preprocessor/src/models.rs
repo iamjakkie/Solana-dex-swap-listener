@@ -34,24 +34,28 @@ impl fmt::Display for Side {
 pub struct ProcessedTrade {
     /// The date of the block (e.g. "2025-01-30") for grouping and logging.
     pub block_date: String,
-    /// Block timestamp (in seconds or milliseconds, as per your design).
+    /// Block timestamp (in seconds or milliseconds).
     pub block_time: i64,
     /// Block slot number.
     pub block_slot: u64,
     pub signature: String,
     pub exchange: String,
-    /// The token being traded – the token that isn’t SOL.
+    /// The token being traded – the token that isn’t the quote asset.
     pub token: String,
     pub side: Side,
+    /// The amount of the traded token.
     pub token_amount: f64,
-    pub sol_amount: f64,
-    pub sol_usd_price: f64,
-    /// The derived price of the traded token (e.g. computed as quote_amount / base_amount).
-    pub sol_price: f64,
-    /// The USD price computed as token_price multiplied by the SOL price at the trade time.
+    /// The symbol of the quote asset (e.g. "SOL" or "USDC").
+    pub quote_asset: String,
+    /// The amount of the quote asset.
+    pub quote_amount: f64,
+    /// Derived price: quote_amount / token_amount.
+    pub derived_price: f64,
+    /// USD price of the traded token. If the quote asset is USDC, this would be the same as derived_price,
+    /// but if it's SOL, you’d convert SOL to USD using an external price feed.
     pub usd_price: f64,
-    /// The traded volume in units of the traded token.
+    /// The traded volume (in token units).
     pub volume: f64,
-    // The token's market capitalization computed as token_price * total_supply (if available).
+    /// The token's market capitalization computed as (derived_price * total_supply), if available.
     pub market_cap: f64,
 }
