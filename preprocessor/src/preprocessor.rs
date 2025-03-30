@@ -20,6 +20,9 @@ use crate::models::Side::{Buy, Sell};
 
 const PUMP_FUN_SUPPLY: f64 = 1_000_000_000.0; // 1 billion
 
+const SOL_ADDRESS: &str = &"So11111111111111111111111111111111111111112";
+const USDC_ADDRESS: &str = &"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
 // lazy_static!(
 //     // SOLSCAN API KEY FROM ENV
 //     pub static ref SOLSCAN_API_KEY: String = env::var("SOLSCAN_API_KEY").expect("SOLSCAN_API_KEY must be set");
